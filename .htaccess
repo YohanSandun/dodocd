@@ -1,0 +1,9 @@
+RewriteEngine On
+
+# Code, config and data are never served directly; only index.php runs.
+RewriteRule ^(agent|storage)(/|$) - [F,L]
+RewriteRule (^|/)\. - [F,L]
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
