@@ -40,20 +40,26 @@ final class Migrator
                 continue;
             }
 
-            $migration = require $file;
-
-            $this->pdo->beginTransaction();
+            // Migrations also run on normal requests after an update. IMMEDIATE takes the write
+            // lock up front, and the re-check stops two requests from applying the same one.
+            $this->pdo->exec('BEGIN IMMEDIATE');
             try {
-                $migration($this->pdo);
-                $this->pdo->prepare('INSERT INTO dodo_migrations (name, applied_at) VALUES (?, ?)')
-                    ->execute([$name, dodo_now()]);
-                $this->pdo->commit();
+                $check = $this->pdo->prepare('SELECT 1 FROM dodo_migrations WHERE name = ?');
+                $check->execute([$name]);
+
+                if ($check->fetchColumn() === false) {
+                    $migration = require $file;
+                    $migration($this->pdo);
+                    $this->pdo->prepare('INSERT INTO dodo_migrations (name, applied_at) VALUES (?, ?)')
+                        ->execute([$name, dodo_now()]);
+                    $ran[] = $name;
+                }
+
+                $this->pdo->exec('COMMIT');
             } catch (Throwable $e) {
-                $this->pdo->rollBack();
+                $this->pdo->exec('ROLLBACK');
                 throw $e;
             }
-
-            $ran[] = $name;
         }
 
         return $ran;

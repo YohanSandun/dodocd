@@ -59,6 +59,45 @@ function dodo_redirect(string $path): never
     exit;
 }
 
+/** DodoCD's own database, with any pending DodoCD schema migrations applied. */
+function dodo_db(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo === null) {
+        $config = dodo_config() ?? throw new RuntimeException('DodoCD is not installed.');
+        $pdo = Dodo\Db\Sqlite::open(Dodo\Db\Sqlite::path($config['data_dir']));
+        (new Dodo\Db\Migrator($pdo, DODO_AGENT . '/migrations'))->migrate();
+    }
+
+    return $pdo;
+}
+
+/** Converts php.ini shorthand like "64M" to bytes. */
+function dodo_ini_bytes(string $value): int
+{
+    $value = trim($value);
+    $number = (int) $value;
+
+    return match (strtolower(substr($value, -1))) {
+        'g' => $number * 1024 ** 3,
+        'm' => $number * 1024 ** 2,
+        'k' => $number * 1024,
+        default => $number,
+    };
+}
+
+function dodo_format_bytes(int $bytes): string
+{
+    foreach (['GB' => 1024 ** 3, 'MB' => 1024 ** 2, 'KB' => 1024] as $unit => $size) {
+        if ($bytes >= $size) {
+            return round($bytes / $size, 1) . ' ' . $unit;
+        }
+    }
+
+    return $bytes . ' B';
+}
+
 /** Current UTC time in the format stored in the SQLite database. */
 function dodo_now(): string
 {
