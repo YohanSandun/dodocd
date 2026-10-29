@@ -122,3 +122,39 @@ function dodo_csrf_field(): string
 {
     return '<input type="hidden" name="_csrf" value="' . e($_SESSION['csrf'] ?? '') . '">';
 }
+
+/** A stored UTC timestamp as a <time> element; the layout's script shows it in the viewer's time zone. */
+function dodo_time(?string $utc): string
+{
+    if ($utc === null) {
+        return '—';
+    }
+
+    $iso = str_replace(' ', 'T', $utc) . 'Z';
+
+    return '<time datetime="' . e($iso) . '" title="' . e($utc) . ' UTC">' . e(substr($utc, 0, 16)) . ' UTC</time>';
+}
+
+/** Time between two stored UTC timestamps, e.g. "1m 05s". */
+function dodo_duration(string $start, ?string $end): string
+{
+    if ($end === null) {
+        return '—';
+    }
+
+    $seconds = max(0, strtotime($end . ' UTC') - strtotime($start . ' UTC'));
+
+    return $seconds < 60 ? "{$seconds}s" : sprintf('%dm %02ds', intdiv($seconds, 60), $seconds % 60);
+}
+
+/** Colored badge for a deployment status: running, success or failed. */
+function dodo_status_badge(string $status): string
+{
+    $class = match ($status) {
+        'success' => 'ok',
+        'failed' => 'fail',
+        default => 'warn',
+    };
+
+    return '<span class="badge ' . $class . '">' . e(ucfirst($status)) . '</span>';
+}
