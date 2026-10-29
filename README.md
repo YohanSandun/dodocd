@@ -2,7 +2,7 @@
 
 Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
 
-**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, and a read-only dashboard. Planned: rollbacks, site settings and token management, app database migrations, status monitoring.
+**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, and a dashboard with deploy history and rollbacks. Planned: site settings and token management, app database migrations, status monitoring.
 
 ## Requirements
 
@@ -143,7 +143,26 @@ Open `https://example.com/dodocd/` and sign in with the admin account from setup
 
 Pages showing a running deployment refresh every few seconds until it finishes. You're signed out after 8 hours without activity.
 
-The dashboard is read-only for now. Rollbacks, site settings and deploy tokens will be managed from here later.
+Site settings and deploy tokens will be managed from here later.
+
+### Rolling back
+
+Under **Roll back**, the dashboard lists the site's earlier releases that can be made live again, most recently live first. A deployment's page also has a button when its release can be rolled back to. A release qualifies if it:
+
+- was live at some point (a failed deploy's release doesn't count)
+- is still kept on disk (the 5 most recent releases are kept)
+- isn't the live release.
+
+A rollback works like a deploy, without uploading anything:
+
+- The chosen release is copied into the site folder. Files that the live release had and the chosen one doesn't are deleted. Files DodoCD never deployed are left alone.
+- If copying fails, the live release is copied back.
+- It takes the same per-site lock, so it can't run at the same time as a deploy.
+- It's listed in the deploy history as a rollback, with who started it.
+
+After rolling back, you can switch forward again the same way: newer kept releases appear as **Redeploy #N**.
+
+Rolling back only changes files. It doesn't undo changes the newer release made to your app's database.
 
 ## How a deploy works
 
@@ -155,7 +174,7 @@ The dashboard is read-only for now. Rollbacks, site settings and deploy tokens w
    - Files DodoCD never deployed, such as `.env`, user uploads and caches, are **never deleted**.
    - Protected paths are never written or deleted. This includes DodoCD's own folder when it lives inside the site folder.
 4. If copying fails, the previous release is copied back.
-5. The 5 most recent release folders are kept, for rollbacks later.
+5. The new release and the 4 releases before it are kept, so you can roll back to them. Older release folders are removed.
 
 Only one deploy runs per site at a time. A deploy keeps going even if the CI connection drops.
 

@@ -11,17 +11,20 @@ use Throwable;
 
 /**
  * Runs one deployment: store the upload, extract it into a new release, copy the release
- * into the site's target folder, then record the result. Deployments for the same site
- * never overlap, and a failed copy restores the previous release where possible.
+ * into the site's target folder, then record the result. A rollback copies an earlier,
+ * still-kept release back in the same way. Deployments for the same site never overlap,
+ * and a failed copy restores the previous release where possible.
  */
 final class Deployer
 {
-    /** Release folders kept on disk per site, including the live one (for rollbacks later). */
+    /** Release folders kept on disk per site, including the live one, so they can be rolled back to. */
     public const KEEP_RELEASES = 5;
 
     private float $startedAt;
     /** @var list<string> */
     private array $log = [];
+    /** File counts from the copy, recorded even when it fails partway. */
+    private ?array $stats = null;
 
     public function __construct(
         private readonly PDO $pdo,
@@ -42,12 +45,11 @@ final class Deployer
         $deploymentId = null;
         $zip = null;
         $workDir = null;
-        $stats = null;
 
         try {
             $site = $this->site($siteId);
             $this->failInterrupted($siteId);
-            $deploymentId = $this->createDeployment($siteId, $tokenId);
+            $deploymentId = $this->createDeployment($siteId, 'deploy', null, $tokenId, null);
             $this->log("Deployment #{$deploymentId} started for site \"{$site['slug']}\".");
 
             $zip = "{$this->dataDir}/uploads/deploy-{$deploymentId}.zip";
@@ -77,29 +79,11 @@ final class Deployer
             $this->pdo->prepare('UPDATE deployments SET release_id = ? WHERE id = ?')->execute([$releaseId, $deploymentId]);
             $this->log("Created release #{$releaseId}.");
 
-            $previousDir = $this->currentReleaseDir($site);
-            $excluded = json_decode($site['excluded_paths'], true) ?: [];
-
-            $this->log("Copying files into {$site['target_path']}.");
-            $sync = new Sync($site['target_path'], $excluded, $this->log(...));
-            try {
-                $sync->run($releaseDir, $previousDir);
-            } catch (Throwable $e) {
-                $stats = $sync->stats;
-                $this->log('Copying failed: ' . $e->getMessage());
-                $this->restore($site, $previousDir, $releaseDir, $excluded);
-                throw $e;
-            }
-            $stats = $sync->stats;
-            $this->log(sprintf('Files: %d added, %d updated, %d unchanged, %d deleted.',
-                $stats['added'], $stats['updated'], $stats['unchanged'], $stats['deleted']));
-
-            $this->pdo->prepare('UPDATE sites SET current_release_id = ?, updated_at = ? WHERE id = ?')
-                ->execute([$releaseId, dodo_now(), $siteId]);
+            $this->activate($site, $releaseId);
             $this->pruneReleases($siteId, $releaseId);
             $this->log(sprintf('Release #%d is live (%.1fs).', $releaseId, microtime(true) - $this->startedAt));
 
-            $this->finish($deploymentId, 'success', $stats);
+            $this->finish($deploymentId, 'success');
             $this->pdo->prepare('INSERT INTO audit_log (site_id, action, details, created_at) VALUES (?, ?, ?, ?)')
                 ->execute([$siteId, 'deploy', json_encode(['deployment_id' => $deploymentId, 'release_id' => $releaseId]), dodo_now()]);
 
@@ -118,7 +102,7 @@ final class Deployer
             $exception = $e instanceof DeployException ? $e : new DeployException($e->getMessage(), 500, $e);
             if ($deploymentId !== null) {
                 $this->log('Deployment failed: ' . $e->getMessage());
-                $this->finish($deploymentId, 'failed', $stats, $e->getMessage());
+                $this->finish($deploymentId, 'failed', $e->getMessage());
                 $exception->deployment = $this->summary($deploymentId);
             }
 
@@ -127,6 +111,128 @@ final class Deployer
             flock($lock, LOCK_UN);
             fclose($lock);
         }
+    }
+
+    /**
+     * Makes an earlier release live again by copying it over the current one. Only releases
+     * that were live before and whose folder is still kept can be rolled back to.
+     *
+     * @return array Summary of the finished rollback.
+     */
+    public function rollback(int $siteId, int $releaseId, ?int $userId, ?int $tokenId = null): array
+    {
+        $this->startedAt = microtime(true);
+        $lock = $this->lock($siteId);
+        $deploymentId = null;
+
+        try {
+            $site = $this->site($siteId);
+            $this->failInterrupted($siteId);
+            $this->checkRollbackTarget($site, $releaseId);
+
+            $deploymentId = $this->createDeployment($siteId, 'rollback', $releaseId, $tokenId, $userId);
+            $this->log("Rollback #{$deploymentId} started for site \"{$site['slug']}\": "
+                . "release #{$site['current_release_id']} → release #{$releaseId}.");
+
+            $this->activate($site, $releaseId);
+            $this->log(sprintf('Release #%d is live (%.1fs).', $releaseId, microtime(true) - $this->startedAt));
+
+            $this->finish($deploymentId, 'success');
+            $this->pdo->prepare('INSERT INTO audit_log (user_id, site_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$userId, $siteId, 'rollback', json_encode([
+                    'deployment_id' => $deploymentId,
+                    'from_release_id' => $site['current_release_id'] === null ? null : (int) $site['current_release_id'],
+                    'release_id' => $releaseId,
+                ]), dodo_now()]);
+
+            return $this->summary($deploymentId);
+        } catch (Throwable $e) {
+            $exception = $e instanceof DeployException ? $e : new DeployException($e->getMessage(), 500, $e);
+            if ($deploymentId !== null) {
+                $this->log('Rollback failed: ' . $e->getMessage());
+                $this->finish($deploymentId, 'failed', $e->getMessage());
+                $exception->deployment = $this->summary($deploymentId);
+            }
+
+            throw $exception;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /**
+     * Releases of a site that can be rolled back to: not live now, were live before and still
+     * kept on disk. Most recently live first. rollback() checks the same rules.
+     *
+     * @return list<array> Release rows, plus 'live_at': when the release last went live.
+     */
+    public static function rollbackTargets(PDO $pdo, int $siteId): array
+    {
+        $statement = $pdo->prepare("SELECT r.*, MAX(d.finished_at) AS live_at
+                                    FROM releases r
+                                    JOIN sites s ON s.id = r.site_id
+                                    JOIN deployments d ON d.release_id = r.id AND d.status = 'success'
+                                    WHERE r.site_id = ? AND r.pruned_at IS NULL
+                                      AND (s.current_release_id IS NULL OR r.id <> s.current_release_id)
+                                    GROUP BY r.id
+                                    ORDER BY MAX(d.id) DESC");
+        $statement->execute([$siteId]);
+
+        return $statement->fetchAll();
+    }
+
+    private function checkRollbackTarget(array $site, int $releaseId): void
+    {
+        $statement = $this->pdo->prepare('SELECT * FROM releases WHERE id = ? AND site_id = ?');
+        $statement->execute([$releaseId, $site['id']]);
+        $release = $statement->fetch() ?: throw new DeployException("Release #{$releaseId} does not belong to this site.", 404);
+
+        if ((int) $site['current_release_id'] === $releaseId) {
+            throw new DeployException("Release #{$releaseId} is already live.", 422);
+        }
+        if ($release['pruned_at'] !== null) {
+            throw new DeployException("Release #{$releaseId} was removed to make room for newer releases, so it can't be rolled back to.", 422);
+        }
+
+        $statement = $this->pdo->prepare("SELECT 1 FROM deployments WHERE release_id = ? AND status = 'success'");
+        $statement->execute([$releaseId]);
+        if ($statement->fetchColumn() === false) {
+            throw new DeployException("Release #{$releaseId} was never live, so it can't be rolled back to.", 422);
+        }
+
+        if (!is_dir($this->releaseDir((int) $site['id'], $releaseId))) {
+            throw new DeployException("The folder for release #{$releaseId} is missing from the data directory.", 422);
+        }
+    }
+
+    /**
+     * Copies a release into the site's target folder and records it as live. Files the live
+     * release had and this one doesn't are deleted. If copying fails, the live release is
+     * copied back and the exception is rethrown.
+     */
+    private function activate(array $site, int $releaseId): void
+    {
+        $releaseDir = $this->releaseDir((int) $site['id'], $releaseId);
+        $previousDir = $this->currentReleaseDir($site);
+        $excluded = json_decode($site['excluded_paths'], true) ?: [];
+
+        $this->log("Copying files into {$site['target_path']}.");
+        $sync = new Sync($site['target_path'], $excluded, $this->log(...));
+        try {
+            $sync->run($releaseDir, $previousDir);
+        } catch (Throwable $e) {
+            $this->stats = $sync->stats;
+            $this->log('Copying failed: ' . $e->getMessage());
+            $this->restore($site, $previousDir, $releaseDir, $excluded);
+            throw $e;
+        }
+        $this->stats = $sync->stats;
+        $this->log(sprintf('Files: %d added, %d updated, %d unchanged, %d deleted.',
+            $this->stats['added'], $this->stats['updated'], $this->stats['unchanged'], $this->stats['deleted']));
+
+        $this->pdo->prepare('UPDATE sites SET current_release_id = ?, updated_at = ? WHERE id = ?')
+            ->execute([$releaseId, dodo_now(), $site['id']]);
     }
 
     /** @return resource */
@@ -162,10 +268,11 @@ final class Deployer
             ->execute(['Interrupted: the PHP process stopped before the deployment finished.', dodo_now(), $siteId]);
     }
 
-    private function createDeployment(int $siteId, ?int $tokenId): int
+    private function createDeployment(int $siteId, string $type, ?int $releaseId, ?int $tokenId, ?int $userId): int
     {
-        $this->pdo->prepare("INSERT INTO deployments (site_id, token_id, type, status, started_at) VALUES (?, ?, 'deploy', 'running', ?)")
-            ->execute([$siteId, $tokenId, dodo_now()]);
+        $this->pdo->prepare("INSERT INTO deployments (site_id, release_id, token_id, user_id, type, status, started_at)
+                             VALUES (?, ?, ?, ?, ?, 'running', ?)")
+            ->execute([$siteId, $releaseId, $tokenId, $userId, $type, dodo_now()]);
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -252,12 +359,12 @@ final class Deployer
         }
     }
 
-    private function finish(int $deploymentId, string $status, ?array $stats, ?string $error = null): void
+    private function finish(int $deploymentId, string $status, ?string $error = null): void
     {
         $this->pdo->prepare('UPDATE deployments SET status = ?, stats = ?, log = ?, error = ?, finished_at = ? WHERE id = ?')
             ->execute([
                 $status,
-                $stats === null ? null : json_encode($stats),
+                $this->stats === null ? null : json_encode($this->stats),
                 implode("\n", $this->log),
                 $error,
                 dodo_now(),
