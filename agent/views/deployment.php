@@ -1,12 +1,15 @@
 <?php
-/** @var array $deployment The deployment joined with its site, release, token and user. */
+/**
+ * @var array $deployment The deployment joined with its site, release, token and user.
+ * @var bool $canRollBack Whether the site can be rolled back to this deployment's release.
+ */
 $d = $deployment;
 $stats = $d['stats'] === null ? null : json_decode($d['stats'], true);
 ?>
 <p><a href="<?= e(dodo_url('/')) ?>">← Dashboard</a></p>
 
 <h2>Deployment #<?= e($d['id']) ?> <?= dodo_status_badge($d['status']) ?></h2>
-<p class="muted"><?= e(ucfirst($d['type'])) ?> to <?= e($d['site_name']) ?></p>
+<p class="muted"><?= $d['type'] === 'rollback' ? 'Rollback of' : 'Deploy to' ?> <?= e($d['site_name']) ?></p>
 
 <?php if ($d['error'] !== null): ?>
     <div class="alert fail"><?= e($d['error']) ?></div>
@@ -44,6 +47,14 @@ $stats = $d['stats'] === null ? null : json_decode($d['stats'], true);
                 #<?= e($d['release_id']) ?>
                 <?php if ((int) $d['release_id'] === (int) $d['current_release_id']): ?><span class="badge ok">Live</span><?php endif ?>
                 <?php if ($d['pruned_at'] !== null): ?><div class="hint">Its files were removed <?= dodo_time($d['pruned_at']) ?> to make room for newer releases.</div><?php endif ?>
+                <?php if ($canRollBack): ?>
+                    <div class="buttons">
+                        <?= dodo_view('_rollback_button', [
+                            'release' => ['id' => $d['release_id']],
+                            'site' => ['name' => $d['site_name'], 'target_path' => $d['target_path'], 'current_release_id' => $d['current_release_id']],
+                        ]) ?>
+                    </div>
+                <?php endif ?>
             <?php endif ?>
         </td>
     </tr>

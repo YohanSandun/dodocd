@@ -21,6 +21,19 @@ $running = false;
                     <?php endif ?>
                 </td>
             </tr>
+            <?php if ($site['rollback_targets']): ?>
+                <tr>
+                    <th>Roll back</th>
+                    <td>
+                        <div class="buttons">
+                            <?php foreach ($site['rollback_targets'] as $release): ?>
+                                <?= dodo_view('_rollback_button', ['release' => $release, 'site' => $site]) ?>
+                            <?php endforeach ?>
+                        </div>
+                        <p class="hint">Earlier releases that are still kept. The most recently live one is first.</p>
+                    </td>
+                </tr>
+            <?php endif ?>
             <tr>
                 <th>Deploys to</th>
                 <td><code><?= e($site['target_path']) ?></code></td>
@@ -50,6 +63,7 @@ $running = false;
                                 <?php if ($deployment['release_id'] === null): ?>
                                     <span class="muted">—</span>
                                 <?php else: ?>
+                                    <?php if ($deployment['type'] === 'rollback'): ?><span class="muted">Rollback to</span><?php endif ?>
                                     #<?= e($deployment['release_id']) ?>
                                     <?php if ($deployment['ref'] !== null): ?> · <?= e($deployment['ref']) ?><?php endif ?>
                                     <?php if ($deployment['commit_sha'] !== null): ?> · <code><?= e(substr($deployment['commit_sha'], 0, 7)) ?></code><?php endif ?>

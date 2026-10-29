@@ -90,6 +90,9 @@ $done ??= [];
         table.list td.release { white-space: normal; width: 100%; min-width: 180px; }
         .badge + .badge, h2 .badge { margin-left: 6px; vertical-align: middle; }
         .fail-text { color: var(--fail); }
+        form.inline { display: inline; }
+        .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        button.small { padding: 4px 10px; font-size: 13px; }
         .prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
         pre.log { margin: 0; padding: 12px; max-height: 70vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     </style>
@@ -135,6 +138,19 @@ $done ??= [];
         if (!isNaN(date)) {
             el.textContent = date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
         }
+    }
+
+    // Forms with data-confirm ask first, and their button is disabled while the request runs.
+    for (const form of document.querySelectorAll('form[data-confirm]')) {
+        form.addEventListener('submit', (event) => {
+            if (!confirm(form.dataset.confirm)) {
+                event.preventDefault();
+                return;
+            }
+            const button = form.querySelector('button');
+            button.disabled = true;
+            button.textContent = 'Working…';
+        });
     }
 </script>
 </body>

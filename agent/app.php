@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Dodo\Auth\Login;
 use Dodo\Auth\Session;
+use Dodo\Deploy\Deployer;
+use Dodo\Deploy\DeployException;
 
 /**
  * Dashboard controller for the signed-in admin. Included by index.php once DodoCD is installed.
@@ -92,21 +94,52 @@ if ($path === '/') {
                           FROM sites s LEFT JOIN releases r ON r.id = s.current_release_id
                           ORDER BY s.name")->fetchAll();
 
-    $statement = $pdo->prepare('SELECT d.id, d.status, d.release_id, d.error, d.started_at, d.finished_at,
+    $statement = $pdo->prepare('SELECT d.id, d.type, d.status, d.release_id, d.error, d.started_at, d.finished_at,
                                        r.ref, r.commit_sha, r.message
                                 FROM deployments d LEFT JOIN releases r ON r.id = d.release_id
                                 WHERE d.site_id = ? ORDER BY d.id DESC LIMIT 20');
     foreach ($sites as &$site) {
         $statement->execute([$site['id']]);
         $site['deployments'] = $statement->fetchAll();
+        $site['rollback_targets'] = Deployer::rollbackTargets($pdo, (int) $site['id']);
     }
     unset($site);
 
     app_render('Dashboard', 'dashboard', ['sites' => $sites]);
 }
 
+if (preg_match('#^/releases/(\d+)/rollback$#', $path, $matches)) {
+    if (!$isPost) {
+        header('Allow: POST');
+        app_fail(405, 'Use the Roll back button on the dashboard.');
+    }
+
+    $statement = $pdo->prepare('SELECT site_id FROM releases WHERE id = ?');
+    $statement->execute([(int) $matches[1]]);
+    $siteId = $statement->fetchColumn();
+    if ($siteId === false) {
+        app_fail(404, 'That release does not exist.');
+    }
+
+    // Like a deploy, a rollback must not stop halfway if the browser goes away.
+    ignore_user_abort(true);
+    @set_time_limit(0);
+    session_write_close();
+
+    try {
+        $result = (new Deployer($pdo, dodo_config()['data_dir']))->rollback((int) $siteId, (int) $matches[1], (int) $user['id']);
+        dodo_redirect('/deployments/' . $result['id']);
+    } catch (DeployException $e) {
+        // Once the rollback is recorded, its page shows the error and the log.
+        if ($e->deployment !== null) {
+            dodo_redirect('/deployments/' . $e->deployment['id']);
+        }
+        app_fail($e->status, $e->getMessage());
+    }
+}
+
 if (preg_match('#^/deployments/(\d+)$#', $path, $matches)) {
-    $statement = $pdo->prepare('SELECT d.*, s.name AS site_name, s.url AS site_url, s.current_release_id,
+    $statement = $pdo->prepare('SELECT d.*, s.name AS site_name, s.url AS site_url, s.target_path, s.current_release_id,
                                        r.ref, r.commit_sha, r.message, r.archive_name, r.archive_size, r.file_count, r.pruned_at,
                                        t.name AS token_name, t.prefix AS token_prefix, u.name AS user_name
                                 FROM deployments d
@@ -117,8 +150,13 @@ if (preg_match('#^/deployments/(\d+)$#', $path, $matches)) {
                                 WHERE d.id = ?');
     $statement->execute([(int) $matches[1]]);
     $deployment = $statement->fetch() ?: app_fail(404, 'That deployment does not exist.');
+    $canRollBack = $deployment['release_id'] !== null && in_array(
+        (int) $deployment['release_id'],
+        array_map('intval', array_column(Deployer::rollbackTargets($pdo, (int) $deployment['site_id']), 'id')),
+        true,
+    );
 
-    app_render("Deployment #{$deployment['id']}", 'deployment', ['deployment' => $deployment]);
+    app_render("Deployment #{$deployment['id']}", 'deployment', ['deployment' => $deployment, 'canRollBack' => $canRollBack]);
 }
 
 app_fail(404, 'Page not found.');
