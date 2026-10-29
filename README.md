@@ -2,7 +2,7 @@
 
 Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
 
-**Status:** early development. Done so far: the setup wizard and the zip deploy endpoint. Planned: sign-in and dashboard, rollbacks, app database migrations, status monitoring.
+**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, and a read-only dashboard. Planned: rollbacks, site settings and token management, app database migrations, status monitoring.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ The largest zip you can deploy is limited by PHP's `upload_max_filesize` and `po
 3. Go through the steps:
    - **Requirements:** checks the server. Red items must be fixed first.
    - **Data directory:** where DodoCD keeps its database, releases and logs. The default is a folder next to your web root, e.g. `/home/you/.dodocd-data`, so nothing in it can be downloaded. If PHP can't write there, it uses `dodocd/storage` and blocks web access to it.
-   - **Admin account:** for the dashboard (coming later).
+   - **Admin account:** for signing in to the dashboard.
    - **Main site:** the site's URL and the folder deploys are written to, usually `public_html`.
    - **App database (optional):** your site's MySQL database. It can be skipped. The password is stored encrypted.
    - **Finish:** installs DodoCD and shows the site's **deploy token**.
@@ -133,6 +133,18 @@ On failure, `ok` is `false` and `error` says why. The `deployment` object (with 
 | 500 | The deploy failed while copying files. The previous release was restored if possible. |
 | 503 | DodoCD isn't installed yet |
 
+## Dashboard
+
+Open `https://example.com/dodocd/` and sign in with the admin account from setup. For each site, the dashboard shows:
+
+- the live release, with its ref and commit
+- the deploy endpoint URL to use in CI
+- the 20 most recent deployments. Click one to see its details and full log.
+
+Pages showing a running deployment refresh every few seconds until it finishes. You're signed out after 8 hours without activity.
+
+The dashboard is read-only for now. Rollbacks, site settings and deploy tokens will be managed from here later.
+
 ## How a deploy works
 
 1. The zip is checked before anything is extracted. Entries with `../`, absolute paths or backslashes are rejected, as are symlinks, more than 100,000 entries, and more than 1 GB of uncompressed content.
@@ -167,6 +179,8 @@ There's no settings screen yet. To change the site's folder, run setup again, or
 - `agent/config.php` holds the key that decrypts stored secrets. Never commit or share it. It's gitignored.
 - Deploy tokens are stored only as SHA-256 hashes. Keep them in your CI's secret store, never in files in your repo.
 - `.htaccess` blocks web access to `agent/`, `storage/` and dotfiles, so only `index.php` can be requested.
+- After 5 failed sign-ins for the same email from one IP address, or 20 from one IP address, sign-in is blocked for 15 minutes.
+- Dashboard sessions are stored in the data directory, not in the host's shared session folder.
 - Until setup finishes, anyone who opens the setup URL can install. Complete setup right after uploading. A second browser can't run setup while one is in progress.
 
 ## Development
@@ -175,7 +189,9 @@ There's no settings screen yet. To change the site's folder, run setup again, or
 |---|---|
 | `index.php` | Front controller and routing |
 | `agent/setup.php`, `agent/views/setup/` | Setup wizard |
+| `agent/app.php`, `agent/views/` | Sign-in and dashboard |
 | `agent/api.php` | JSON API for CI |
+| `agent/src/Auth/` | Deploy tokens, sign-in, sessions |
 | `agent/src/Installer/` | Requirement checks, data directory, install |
 | `agent/src/Deploy/` | Zip validation, file copying, deploy orchestration |
 | `agent/migrations/` | DodoCD's own SQLite schema |

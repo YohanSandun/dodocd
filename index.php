@@ -29,11 +29,4 @@ if (!$installed) {
     dodo_redirect('/setup');
 }
 
-switch ($path) {
-    case '/':
-        echo dodo_view('layout', ['title' => 'DodoCD', 'content' => dodo_view('home')]);
-        break;
-    default:
-        http_response_code(404);
-        echo 'Not found';
-}
+require DODO_AGENT . '/app.php';
