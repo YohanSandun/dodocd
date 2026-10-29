@@ -1,5 +1,9 @@
 RewriteEngine On
 
+# Pass the Authorization header through to PHP; CGI/FastCGI setups drop it otherwise.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Code, config and data are never served directly; only index.php runs.
 RewriteRule ^(agent|storage)(/|$) - [F,L]
 RewriteRule (^|/)\. - [F,L]

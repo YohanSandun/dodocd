@@ -55,11 +55,11 @@ final class Requirements
                 'Needed to run your app\'s database migrations. Without it the app database step is skipped.',
                 required: false),
             self::result('Upload size limit',
-                self::bytes($upload) >= self::RECOMMENDED_UPLOAD_BYTES,
+                dodo_ini_bytes($upload) >= self::RECOMMENDED_UPLOAD_BYTES,
                 "upload_max_filesize is {$upload}. Deploy archives larger than this are rejected (64M or more recommended).",
                 required: false),
             self::result('POST size limit',
-                self::bytes($post) >= self::RECOMMENDED_UPLOAD_BYTES,
+                dodo_ini_bytes($post) >= self::RECOMMENDED_UPLOAD_BYTES,
                 "post_max_size is {$post}. It must be at least as large as the upload limit.",
                 required: false),
             self::result('Execution time limit',
@@ -152,19 +152,5 @@ final class Requirements
         $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
 
         return function_exists($name) && !in_array($name, $disabled, true);
-    }
-
-    /** Converts php.ini shorthand like "64M" to bytes. */
-    private static function bytes(string $value): int
-    {
-        $value = trim($value);
-        $number = (int) $value;
-
-        return match (strtolower(substr($value, -1))) {
-            'g' => $number * 1024 ** 3,
-            'm' => $number * 1024 ** 2,
-            'k' => $number * 1024,
-            default => $number,
-        };
     }
 }
