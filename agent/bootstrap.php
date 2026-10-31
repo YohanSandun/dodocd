@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-define('DODO_VERSION', '0.1.0');
+define('DODO_VERSION', '1.0.0');
 define('DODO_ROOT', dirname(__DIR__));
 define('DODO_AGENT', __DIR__);
 define('DODO_CONFIG', __DIR__ . '/config.php');
