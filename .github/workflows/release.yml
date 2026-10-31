@@ -1,0 +1,51 @@
+# Builds the DodoCD package (dodocd-x.y.z.zip with a signed manifest).
+# Pushing a tag like v0.2.0 publishes it as a GitHub release; DODO_VERSION must match the tag.
+# Running it by hand builds a package as a workflow artifact, without publishing anything.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: openssl, pdo_sqlite, zip
+          coverage: none
+
+      - name: Lint
+        run: |
+          for f in $(git ls-files '*.php'); do
+            php -l "$f" > /dev/null || exit 1
+          done
+
+      - name: Build package
+        env:
+          DODOCD_SIGNING_KEY: ${{ secrets.DODOCD_SIGNING_KEY }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            php tools/build-package.php --out build --tag "$GITHUB_REF_NAME" --require-signature
+          else
+            php tools/build-package.php --out build
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dodocd-package
+          path: build/
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/* --title "DodoCD ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag

@@ -56,6 +56,24 @@ final class Deployer
         }
     }
 
+    /** Runs $fn while holding every site's lock, so no deploy, rollback or settings change can run. */
+    public function withAllSiteLocks(Closure $fn): mixed
+    {
+        $locks = [];
+        try {
+            foreach ($this->pdo->query('SELECT id FROM sites ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) as $siteId) {
+                $locks[] = $this->lock((int) $siteId);
+            }
+
+            return $fn();
+        } finally {
+            foreach ($locks as $lock) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+        }
+    }
+
     /**
      * @param array{name: string, tmp_name: string} $upload An entry from $_FILES.
      * @param array{ref: ?string, commit: ?string, message: ?string} $meta Optional details sent by CI.
@@ -95,6 +113,12 @@ final class Deployer
             $releaseDir = $this->releaseDir($siteId, $releaseId);
             if (!is_dir(dirname($releaseDir)) && !mkdir(dirname($releaseDir), 0750, true)) {
                 throw new RuntimeException('Could not create ' . dirname($releaseDir) . '.');
+            }
+            // The id was just allocated, so no release row owns this folder. It's left over from
+            // before DodoCD's database was restored from a backup (see Update\Updater).
+            if (file_exists($releaseDir)) {
+                $this->log("Removing release folder {$releaseId} left over from before a database restore.");
+                Filesystem::deleteDirectory($releaseDir);
             }
             if (!rename($workDir, $releaseDir)) {
                 throw new RuntimeException("Could not move the release into {$releaseDir}.");
