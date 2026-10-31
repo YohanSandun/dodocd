@@ -41,7 +41,7 @@ $database = $state['database'];
         <th>App database</th>
         <td>
             <?php if ($database): ?>
-                <?= e($database['user']) ?>@<?= e($database['host']) ?>:<?= e($database['port']) ?> / <?= e($database['name']) ?>
+                <?= e($database['username']) ?>@<?= e($database['host']) ?>:<?= e($database['port']) ?> / <?= e($database['name']) ?>
             <?php else: ?>
                 <span class="muted">Skipped</span>
             <?php endif ?>

@@ -1,13 +1,14 @@
 <?php
 /**
  * @var list<string> $errors
- * @var array{host: string, port: int, name: string, user: string} $db
+ * @var array{host: string, port: int, name: string, username: string} $db
  * @var bool $mysqlAvailable
  */
 ?>
 <h2>App database <span class="muted" style="font-weight: 400">(optional)</span></h2>
-<p class="muted">The MySQL / MariaDB database your site uses. DodoCD will use it to run your app's migrations
-    and take backups before deploys. You can skip this and add it later. The password is stored encrypted.</p>
+<p class="muted">The MySQL / MariaDB database your site uses. DodoCD runs the SQL migrations in each release's
+    <code>.dodocd/migrations</code> folder against it. You can skip this and add it later from the dashboard.
+    The password is stored encrypted.</p>
 
 <?= dodo_view('setup/_errors', ['errors' => $errors]) ?>
 
@@ -33,7 +34,7 @@
     <input type="text" id="db_name" name="db_name" value="<?= e($db['name']) ?>" required>
 
     <label for="db_user">User</label>
-    <input type="text" id="db_user" name="db_user" value="<?= e($db['user']) ?>" required autocomplete="off">
+    <input type="text" id="db_user" name="db_user" value="<?= e($db['username']) ?>" required autocomplete="off">
 
     <label for="db_pass">Password</label>
     <input type="password" id="db_pass" name="db_pass" autocomplete="new-password">
@@ -47,29 +48,4 @@
     </div>
 </form>
 
-<script>
-    document.getElementById('db-test').addEventListener('click', async (event) => {
-        const button = event.currentTarget;
-        const result = document.getElementById('db-test-result');
-
-        button.disabled = true;
-        result.hidden = false;
-        result.className = 'alert';
-        result.textContent = 'Testing connection…';
-
-        try {
-            const response = await fetch(<?= json_encode(dodo_url('/setup/test-db'), JSON_HEX_TAG | JSON_UNESCAPED_SLASHES) ?>, {
-                method: 'POST',
-                body: new FormData(document.getElementById('db-form')),
-            });
-            const data = await response.json();
-            result.className = 'alert ' + (data.ok ? 'ok' : 'fail');
-            result.textContent = data.message;
-        } catch (error) {
-            result.className = 'alert fail';
-            result.textContent = 'The test request failed. Check your connection and try again.';
-        } finally {
-            button.disabled = false;
-        }
-    });
-</script>
+<?= dodo_view('_db_test', ['testUrl' => '/setup/test-db']) ?>

@@ -95,7 +95,7 @@ ignore_user_abort(true);
 @set_time_limit(0);
 
 try {
-    $deployment = (new Deployer(dodo_db(), $config['data_dir']))->deploy(
+    $deployment = (new Deployer(dodo_db(), $config['data_dir'], dodo_crypto()))->deploy(
         (int) $auth['site']['id'],
         (int) $auth['token']['id'],
         $upload,

@@ -9,6 +9,14 @@ use PDO;
 /** Deploy tokens: "dodo_" + 64 hex chars, stored only as a SHA-256 hash. */
 final class ApiToken
 {
+    /** @return array{token: string, prefix: string, hash: string} A new token; only prefix and hash are stored. */
+    public static function generate(): array
+    {
+        $token = 'dodo_' . bin2hex(random_bytes(32));
+
+        return ['token' => $token, 'prefix' => substr($token, 0, 12), 'hash' => hash('sha256', $token)];
+    }
+
     /** Reads the token from "Authorization: Bearer …", or the X-Dodo-Token header as a fallback. */
     public static function fromRequest(): ?string
     {

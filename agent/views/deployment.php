@@ -1,7 +1,9 @@
 <?php
 /**
  * @var array $deployment The deployment joined with its site, release, token and user.
+ * @var list<array> $migrations Migrations this deployment ran (MigrationLog::forDeployment()).
  * @var bool $canRollBack Whether the site can be rolled back to this deployment's release.
+ * @var array|null $drift MigrationLog::drift() for the release, when it can be rolled back to.
  */
 $d = $deployment;
 $stats = $d['stats'] === null ? null : json_decode($d['stats'], true);
@@ -50,7 +52,7 @@ $stats = $d['stats'] === null ? null : json_decode($d['stats'], true);
                 <?php if ($canRollBack): ?>
                     <div class="buttons">
                         <?= dodo_view('_rollback_button', [
-                            'release' => ['id' => $d['release_id']],
+                            'release' => ['id' => $d['release_id'], 'drift' => $drift],
                             'site' => ['name' => $d['site_name'], 'target_path' => $d['target_path'], 'current_release_id' => $d['current_release_id']],
                         ]) ?>
                     </div>
@@ -89,6 +91,28 @@ $stats = $d['stats'] === null ? null : json_decode($d['stats'], true);
         </tr>
     <?php endif ?>
 </table>
+
+<?php if ($migrations): ?>
+    <h3>Database migrations</h3>
+    <div class="scroll">
+        <table class="list">
+            <thead><tr><th>File</th><th>Status</th><th>Statements</th><th>Duration</th></tr></thead>
+            <tbody>
+            <?php foreach ($migrations as $migration): ?>
+                <tr>
+                    <td class="release">
+                        <code><?= e($migration['name']) ?></code>
+                        <?php if ($migration['error'] !== null): ?><div class="hint fail-text"><?= e($migration['error']) ?></div><?php endif ?>
+                    </td>
+                    <td><?= dodo_migration_badge($migration['status']) ?></td>
+                    <td><?= e($migration['statements_run']) ?> of <?= e($migration['statements_total']) ?></td>
+                    <td><?= e(round($migration['duration_ms'] / 1000, 1)) ?>s</td>
+                </tr>
+            <?php endforeach ?>
+            </tbody>
+        </table>
+    </div>
+<?php endif ?>
 
 <h3>Log</h3>
 <?php if ($d['log'] === null || $d['log'] === ''): ?>

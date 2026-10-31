@@ -2,10 +2,22 @@
 /** @var list<array> $sites Each with its current release fields and its recent 'deployments'. */
 $running = false;
 ?>
+<div class="page-actions">
+    <a class="button secondary" href="<?= e(dodo_url('/sites/new')) ?>">Add site</a>
+</div>
+
 <?php foreach ($sites as $site): ?>
+    <?php $siteUrl = '/sites/' . $site['slug']; ?>
     <section class="site">
         <h2><?= e($site['name']) ?></h2>
-        <p class="muted"><a href="<?= e($site['url']) ?>" rel="noopener" target="_blank"><?= e($site['url']) ?></a></p>
+        <p class="muted">
+            <a href="<?= e($site['url']) ?>" rel="noopener" target="_blank"><?= e($site['url']) ?></a>
+            <span class="site-links"> ·
+                <a href="<?= e(dodo_url($siteUrl . '/settings')) ?>">Settings</a> ·
+                <a href="<?= e(dodo_url($siteUrl . '/database')) ?>">Database</a> ·
+                <a href="<?= e(dodo_url($siteUrl . '/migrations')) ?>">Migrations</a>
+            </span>
+        </p>
 
         <table>
             <tr>
@@ -39,6 +51,17 @@ $running = false;
                 <td><code><?= e($site['target_path']) ?></code></td>
             </tr>
             <tr>
+                <th>Database</th>
+                <td>
+                    <?php if ($site['database'] === null): ?>
+                        <span class="muted">None</span>
+                        · <a href="<?= e(dodo_url($siteUrl . '/database')) ?>">Add</a>
+                    <?php else: ?>
+                        <code><?= e($site['database']['name']) ?></code> on <?= e($site['database']['host']) ?>
+                    <?php endif ?>
+                </td>
+            </tr>
+            <tr>
                 <th>Deploy endpoint</th>
                 <td><code><?= e(dodo_origin() . dodo_url('/api/sites/' . $site['slug'] . '/deploy')) ?></code></td>
             </tr>
@@ -67,6 +90,9 @@ $running = false;
                                     #<?= e($deployment['release_id']) ?>
                                     <?php if ($deployment['ref'] !== null): ?> · <?= e($deployment['ref']) ?><?php endif ?>
                                     <?php if ($deployment['commit_sha'] !== null): ?> · <code><?= e(substr($deployment['commit_sha'], 0, 7)) ?></code><?php endif ?>
+                                <?php endif ?>
+                                <?php if ($deployment['migrations'] > 0): ?>
+                                    <span class="muted">· <?= e($deployment['migrations']) ?> migration<?= $deployment['migrations'] == 1 ? '' : 's' ?></span>
                                 <?php endif ?>
                                 <?php if ($deployment['status'] === 'failed' && $deployment['error'] !== null): ?>
                                     <div class="hint fail-text"><?= e($deployment['error']) ?></div>
