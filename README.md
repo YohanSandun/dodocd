@@ -2,7 +2,7 @@
 
 Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
 
-**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks and multiple sites, and SQL migrations for each site's own MySQL database. Planned: database backups before migrating, deploy token management, status monitoring.
+**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks, multiple sites, deploy token management, and SQL migrations for each site's own MySQL database. Planned: database backups before migrating, status monitoring.
 
 ## Requirements
 
@@ -27,7 +27,7 @@ The largest zip you can deploy is limited by PHP's `upload_max_filesize` and `po
    - **Main site:** the site's URL and the folder deploys are written to, usually `public_html`.
    - **App database (optional):** your site's MySQL database, used for [migrations](#database-migrations). It can be skipped and added later. The password is stored encrypted.
    - **Finish:** installs DodoCD and shows the site's **deploy token**.
-4. Copy the deploy token into your CI's secrets (e.g. `DODOCD_TOKEN`). It is shown only once, because only a hash of it is stored.
+4. Copy the deploy token into your CI's secrets (e.g. `DODOCD_TOKEN`). It is shown only once, because only a hash of it is stored. If you lose it, create a new one on the site's **Deploy tokens** page.
 
 To run setup again, delete `dodocd/agent/config.php`. Any existing database is renamed to `dodo.sqlite.bak-<timestamp>` rather than deleted.
 
@@ -146,7 +146,7 @@ Open `https://example.com/dodocd/` and sign in with the admin account from setup
 
 Pages showing a running deployment refresh every few seconds until it finishes. You're signed out after 8 hours without activity.
 
-Each site has **Settings**, **Database** and **Migrations** pages, linked from the dashboard.
+Each site has **Settings**, **Deploy tokens**, **Database** and **Migrations** pages, linked from the dashboard.
 
 ### Sites
 
@@ -157,6 +157,15 @@ Click **Add site** to deploy another site. Each site has its own folder, deploy 
 - **Changing a site's folder** doesn't move any files. The next deploy copies the release into the new folder and is treated as a first deploy there, so nothing in it is deleted.
 - **Database settings:** the password is stored encrypted and never shown again. Leave the field empty to keep the stored password. If you change the host, port or user, you have to enter the password again, so the stored one can't be sent to a different server.
 - **No changes during a deploy.** A site's settings, database and baselines can't be changed while a deploy or rollback is running for it. Try again when it finishes.
+
+### Deploy tokens
+
+A site's **Deploy tokens** page lists its tokens with when each was created and last used, and lets you create and revoke them. A site can have several active tokens, for example one per CI or repository.
+
+- **Shown once.** A new token is shown right after you create it. Only its hash is stored, so it can't be shown again. Give it a name; the deploy history shows which token deployed.
+- **Revoking** stops the token working immediately. A deploy that already started with it still finishes. Revoked tokens stay listed, so old deployments still show who deployed.
+- **Rotating:** create a new token, update your CI secret, then revoke the old one.
+- With no active token, every deploy to the site is refused with 401. The dashboard warns about this.
 
 ### Rolling back
 

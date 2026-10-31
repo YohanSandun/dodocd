@@ -97,9 +97,7 @@ final class Sites
             ]);
         $siteId = (int) $pdo->lastInsertId();
 
-        $token = ApiToken::generate();
-        $pdo->prepare('INSERT INTO api_tokens (site_id, name, prefix, token_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-            ->execute([$siteId, 'Default deploy token', $token['prefix'], $token['hash'], $now]);
+        $token = ApiToken::create($pdo, $siteId, 'Default deploy token');
 
         return ['id' => $siteId, 'slug' => $slug, 'token' => $token['token']];
     }

@@ -53,6 +53,7 @@ DodoCD is a self-hosted CI/CD tool for PHP sites on shared hosting (Apache/LiteS
 - **Stored DB password:** reused only when host, port and user are unchanged.
 - **Site lock:** settings, database and baseline writes run under `Deployer::withSiteLock`, so they can't race a deploy.
 - **New token:** shown once via a session flash and a redirect to `/sites/{slug}/token`.
+- **Deploy tokens** (`/sites/{slug}/tokens`, SQL in `Auth\ApiToken`): create (shown once via the same `new_token` flash) and revoke. Revoking sets `revoked_at` and never deletes the row, because `deployments.token_id` points at it. Every query is scoped by `site_id`, and no lock is needed.
 
 **Setup wizard** (`agent/setup.php`, views in `agent/views/setup/`): ordered steps stored in the session, CSRF on every POST, and `Installer\SetupLock` so only one browser can run setup at a time. `Installer\Installer::install` does all the writes in the finish step.
 

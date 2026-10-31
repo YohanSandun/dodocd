@@ -6,6 +6,7 @@ use Dodo\AppDb\Connection;
 use Dodo\AppDb\MigrationException;
 use Dodo\AppDb\MigrationLog;
 use Dodo\AppDb\MigrationRunner;
+use Dodo\Auth\ApiToken;
 use Dodo\Auth\Login;
 use Dodo\Auth\Session;
 use Dodo\Deploy\Deployer;
@@ -132,7 +133,8 @@ if ($isPost && !Session::csrfValid()) {
 if ($path === '/') {
     $sites = $pdo->query("SELECT s.*, r.ref, r.commit_sha, r.message,
                                  (SELECT MAX(d.finished_at) FROM deployments d
-                                  WHERE d.release_id = s.current_release_id AND d.status = 'success') AS live_since
+                                  WHERE d.release_id = s.current_release_id AND d.status = 'success') AS live_since,
+                                 (SELECT COUNT(*) FROM api_tokens t WHERE t.site_id = s.id AND t.revoked_at IS NULL) AS active_tokens
                           FROM sites s LEFT JOIN releases r ON r.id = s.current_release_id
                           ORDER BY s.name")->fetchAll();
 
@@ -250,6 +252,43 @@ if ($sitePage === '/token') {
     $token = ($flash['slug'] ?? null) === $site['slug'] ? $flash['token'] : null;
 
     app_render('Deploy token', 'sites/token', ['site' => $site, 'token' => $token]);
+}
+
+if ($sitePage === '/tokens') {
+    $name = '';
+    $errors = [];
+
+    if ($isPost && ($_POST['action'] ?? '') === 'revoke') {
+        $revoked = ApiToken::revoke($pdo, $siteId, (int) ($_POST['token_id'] ?? 0));
+        if ($revoked === null) {
+            $errors[] = 'That token is already revoked or does not belong to this site.';
+        } else {
+            app_audit('token_revoked', $siteId, ['token_id' => (int) $revoked['id'], 'name' => $revoked['name'], 'prefix' => $revoked['prefix']]);
+            app_flash("Revoked \"{$revoked['name']}\". CI using it can no longer deploy.");
+            dodo_redirect('/sites/' . $site['slug'] . '/tokens');
+        }
+    } elseif ($isPost) {
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $errors = ApiToken::validateName($pdo, $siteId, $name);
+        if (!$errors) {
+            $created = ApiToken::create($pdo, $siteId, $name);
+            app_audit('token_created', $siteId, ['token_id' => $created['id'], 'name' => $created['name'], 'prefix' => $created['prefix']]);
+            // Shown once on the next page; redirecting first means a refresh can't create it twice.
+            $_SESSION['new_token'] = ['slug' => $site['slug'], 'token' => $created['token'], 'name' => $created['name']];
+            dodo_redirect('/sites/' . $site['slug'] . '/tokens');
+        }
+    }
+
+    $flash = $_SESSION['new_token'] ?? null;
+    unset($_SESSION['new_token']);
+
+    app_render("{$site['name']} deploy tokens", 'sites/tokens', [
+        'site' => $site,
+        'tokens' => ApiToken::forSite($pdo, $siteId),
+        'newToken' => ($flash['slug'] ?? null) === $site['slug'] ? $flash : null,
+        'name' => $name,
+        'errors' => $errors,
+    ], $errors ? 422 : 200);
 }
 
 if ($sitePage === '/settings') {

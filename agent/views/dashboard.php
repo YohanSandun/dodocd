@@ -14,6 +14,7 @@ $running = false;
             <a href="<?= e($site['url']) ?>" rel="noopener" target="_blank"><?= e($site['url']) ?></a>
             <span class="site-links"> ·
                 <a href="<?= e(dodo_url($siteUrl . '/settings')) ?>">Settings</a> ·
+                <a href="<?= e(dodo_url($siteUrl . '/tokens')) ?>">Deploy tokens</a> ·
                 <a href="<?= e(dodo_url($siteUrl . '/database')) ?>">Database</a> ·
                 <a href="<?= e(dodo_url($siteUrl . '/migrations')) ?>">Migrations</a>
             </span>
@@ -64,6 +65,17 @@ $running = false;
             <tr>
                 <th>Deploy endpoint</th>
                 <td><code><?= e(dodo_origin() . dodo_url('/api/sites/' . $site['slug'] . '/deploy')) ?></code></td>
+            </tr>
+            <tr>
+                <th>Deploy tokens</th>
+                <td>
+                    <?php if ((int) $site['active_tokens'] === 0): ?>
+                        <span class="fail-text">None active, so deploys are refused</span>
+                        · <a href="<?= e(dodo_url($siteUrl . '/tokens')) ?>">Create one</a>
+                    <?php else: ?>
+                        <?= e($site['active_tokens']) ?> active · <a href="<?= e(dodo_url($siteUrl . '/tokens')) ?>">Manage</a>
+                    <?php endif ?>
+                </td>
             </tr>
         </table>
 
