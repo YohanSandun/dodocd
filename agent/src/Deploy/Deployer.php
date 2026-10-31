@@ -4,20 +4,27 @@ declare(strict_types=1);
 
 namespace Dodo\Deploy;
 
+use Closure;
+use Dodo\AppDb\Connection;
+use Dodo\AppDb\MigrationException;
+use Dodo\AppDb\MigrationLog;
+use Dodo\AppDb\MigrationRunner;
+use Dodo\Crypto;
 use Dodo\Filesystem;
 use PDO;
 use RuntimeException;
 use Throwable;
 
 /**
- * Runs one deployment: store the upload, extract it into a new release, copy the release
- * into the site's target folder, then record the result. A rollback copies an earlier,
- * still-kept release back in the same way. Deployments for the same site never overlap,
- * and a failed copy restores the previous release where possible.
+ * Runs one deployment: store the upload, extract it into a new release, run the release's
+ * database migrations, copy the release into the site's target folder, then record the
+ * result. A rollback copies an earlier, still-kept release back in the same way (without
+ * migrations). Deployments for the same site never overlap, and a failed copy restores the
+ * previous release where possible.
  */
 final class Deployer
 {
-    /** Release folders kept on disk per site, including the live one, so they can be rolled back to. */
+    /** Releases that were live, kept on disk per site (including the live one) so they can be rolled back to. */
     public const KEEP_RELEASES = 5;
 
     private float $startedAt;
@@ -29,7 +36,24 @@ final class Deployer
     public function __construct(
         private readonly PDO $pdo,
         private readonly string $dataDir,
+        /** Decrypts the site's database password; only needed for releases with migrations. */
+        private readonly ?Crypto $crypto = null,
     ) {
+    }
+
+    /**
+     * Runs $fn while holding the site's deploy lock, for changes that must not happen during
+     * a deploy (site settings, database settings, baselines). Throws 409 if a deploy is running.
+     */
+    public function withSiteLock(int $siteId, Closure $fn): mixed
+    {
+        $lock = $this->lock($siteId);
+        try {
+            return $fn();
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     /**
@@ -79,8 +103,18 @@ final class Deployer
             $this->pdo->prepare('UPDATE deployments SET release_id = ? WHERE id = ?')->execute([$releaseId, $deploymentId]);
             $this->log("Created release #{$releaseId}.");
 
-            $this->activate($site, $releaseId);
-            $this->pruneReleases($siteId, $releaseId);
+            $migrated = $this->migrate($site, $releaseId, $releaseDir, $deploymentId);
+
+            try {
+                $this->activate($site, $releaseId);
+            } catch (Throwable $e) {
+                if ($migrated > 0) {
+                    throw new DeployException($e->getMessage() . " The database migrations were applied, so the previous "
+                        . "release's files now run against the new schema.", 500, $e);
+                }
+                throw $e;
+            }
+            $this->pruneReleases($siteId);
             $this->log(sprintf('Release #%d is live (%.1fs).', $releaseId, microtime(true) - $this->startedAt));
 
             $this->finish($deploymentId, 'success');
@@ -99,9 +133,11 @@ final class Deployer
                 }
             }
 
-            $exception = $e instanceof DeployException ? $e : new DeployException($e->getMessage(), 500, $e);
+            $exception = self::deployException($e);
             if ($deploymentId !== null) {
                 $this->log('Deployment failed: ' . $e->getMessage());
+                // Keeps failed releases from piling up and pushing out the ones that can be rolled back to.
+                $this->pruneReleases($siteId);
                 $this->finish($deploymentId, 'failed', $e->getMessage());
                 $exception->deployment = $this->summary($deploymentId);
             }
@@ -133,6 +169,7 @@ final class Deployer
             $deploymentId = $this->createDeployment($siteId, 'rollback', $releaseId, $tokenId, $userId);
             $this->log("Rollback #{$deploymentId} started for site \"{$site['slug']}\": "
                 . "release #{$site['current_release_id']} → release #{$releaseId}.");
+            $this->warnAboutMigrationDrift((int) $site['id'], $releaseId);
 
             $this->activate($site, $releaseId);
             $this->log(sprintf('Release #%d is live (%.1fs).', $releaseId, microtime(true) - $this->startedAt));
@@ -147,7 +184,7 @@ final class Deployer
 
             return $this->summary($deploymentId);
         } catch (Throwable $e) {
-            $exception = $e instanceof DeployException ? $e : new DeployException($e->getMessage(), 500, $e);
+            $exception = self::deployException($e);
             if ($deploymentId !== null) {
                 $this->log('Rollback failed: ' . $e->getMessage());
                 $this->finish($deploymentId, 'failed', $e->getMessage());
@@ -204,6 +241,69 @@ final class Deployer
         if (!is_dir($this->releaseDir((int) $site['id'], $releaseId))) {
             throw new DeployException("The folder for release #{$releaseId} is missing from the data directory.", 422);
         }
+    }
+
+    public function releaseDir(int $siteId, int $releaseId): string
+    {
+        return "{$this->dataDir}/releases/{$siteId}/{$releaseId}";
+    }
+
+    /**
+     * Runs the release's migrations against the site's database, before any file is copied.
+     * A failure leaves the live release untouched (the database may be partly changed).
+     *
+     * @return int Number of migrations applied.
+     */
+    private function migrate(array $site, int $releaseId, string $releaseDir, int $deploymentId): int
+    {
+        $files = MigrationRunner::files($releaseDir);
+        if (!$files) {
+            return 0;
+        }
+
+        $siteId = (int) $site['id'];
+        $db = $this->crypto === null ? null : Connection::forSite($this->pdo, $siteId, $this->crypto);
+        if ($db === null) {
+            throw new DeployException('This release contains migrations (' . MigrationRunner::DIR . '), but the site has '
+                . 'no database configured. Add it in the site\'s database settings, then deploy again.', 422);
+        }
+
+        $this->log(sprintf('Found %d migration file%s. Connecting to database "%s" on %s.',
+            count($files), count($files) === 1 ? '' : 's', $db['name'], $db['host']));
+        try {
+            $app = Connection::open($db);
+        } catch (RuntimeException $e) {
+            throw new DeployException($e->getMessage(), 503, $e);
+        }
+
+        $runner = new MigrationRunner($app, $db, $this->log(...));
+
+        return $runner->run($files, $releaseId, $deploymentId,
+            fn (array $result) => MigrationLog::record($this->pdo, $siteId, $deploymentId, $releaseId, null, $result));
+    }
+
+    /** Rollbacks don't run migrations, so say what the database keeps or lacks compared to the release. */
+    private function warnAboutMigrationDrift(int $siteId, int $releaseId): void
+    {
+        $drift = MigrationLog::drift($this->pdo, $siteId, $this->releaseDir($siteId, $releaseId));
+
+        if ($drift['stay_applied']) {
+            $this->log('Warning: these migrations stay applied, because rollbacks don\'t undo database changes: '
+                . implode(', ', $drift['stay_applied']) . '.');
+        }
+        if ($drift['not_applied']) {
+            $this->log('Warning: this release has migrations that are not applied, and switching releases doesn\'t run them: '
+                . implode(', ', $drift['not_applied']) . '. Deploy it again to run them.');
+        }
+    }
+
+    private static function deployException(Throwable $e): DeployException
+    {
+        return match (true) {
+            $e instanceof DeployException => $e,
+            $e instanceof MigrationException => new DeployException($e->getMessage(), $e->status, $e),
+            default => new DeployException($e->getMessage(), 500, $e),
+        };
     }
 
     /**
@@ -292,11 +392,6 @@ final class Deployer
         return $releaseId;
     }
 
-    private function releaseDir(int $siteId, int $releaseId): string
-    {
-        return "{$this->dataDir}/releases/{$siteId}/{$releaseId}";
-    }
-
     /** The live release's folder, used to work out which files to delete. Null on the first deploy. */
     private function currentReleaseDir(array $site): ?string
     {
@@ -331,12 +426,41 @@ final class Deployer
         }
     }
 
-    private function pruneReleases(int $siteId, int $liveReleaseId): void
+    /**
+     * Keeps the live release, the KEEP_RELEASES - 1 most recent releases that were live before
+     * (rollback targets), and the newest never-live release if it's newer than the live one
+     * (its migrations can be baselined after a failed deploy). Removes the rest.
+     */
+    private function pruneReleases(int $siteId): void
     {
-        $statement = $this->pdo->prepare('SELECT id, path FROM releases
-                                          WHERE site_id = ? AND id <> ? AND pruned_at IS NULL ORDER BY id DESC');
-        $statement->execute([$siteId, $liveReleaseId]);
-        $old = array_slice($statement->fetchAll(), self::KEEP_RELEASES - 1);
+        try {
+            $statement = $this->pdo->prepare("SELECT r.id, r.path,
+                                                     EXISTS (SELECT 1 FROM deployments d WHERE d.release_id = r.id AND d.status = 'success') AS was_live
+                                              FROM releases r
+                                              WHERE r.site_id = ? AND r.pruned_at IS NULL
+                                                AND r.id <> COALESCE((SELECT current_release_id FROM sites WHERE id = ?), 0)
+                                              ORDER BY r.id DESC");
+            $statement->execute([$siteId, $siteId]);
+            $liveId = (int) $this->site($siteId)['current_release_id'];
+        } catch (Throwable $e) {
+            $this->log('Warning: could not check for old releases to remove: ' . $e->getMessage());
+            return;
+        }
+
+        $keptLive = 0;
+        $keptFailed = false;
+        $old = [];
+        foreach ($statement->fetchAll() as $release) {
+            if ($release['was_live']) {
+                if (++$keptLive < self::KEEP_RELEASES) {
+                    continue;
+                }
+            } elseif (!$keptFailed && (int) $release['id'] > $liveId) {
+                $keptFailed = true;
+                continue;
+            }
+            $old[] = $release;
+        }
 
         foreach ($old as $release) {
             try {
@@ -387,6 +511,7 @@ final class Deployer
             'started_at' => $row['started_at'],
             'finished_at' => $row['finished_at'],
             'duration_ms' => (int) round((microtime(true) - $this->startedAt) * 1000),
+            'migrations' => MigrationLog::forDeployment($this->pdo, $deploymentId),
             'log' => $this->log,
         ];
     }

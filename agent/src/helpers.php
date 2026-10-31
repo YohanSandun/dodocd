@@ -158,3 +158,23 @@ function dodo_status_badge(string $status): string
 
     return '<span class="badge ' . $class . '">' . e(ucfirst($status)) . '</span>';
 }
+
+/** Encrypts and decrypts stored secrets, such as site database passwords, with the install's app_key. */
+function dodo_crypto(): Dodo\Crypto
+{
+    static $crypto = null;
+
+    return $crypto ??= new Dodo\Crypto((dodo_config() ?? throw new RuntimeException('DodoCD is not installed.'))['app_key']);
+}
+
+/** Colored badge for an app migration's status: applied, baseline or failed. */
+function dodo_migration_badge(string $status): string
+{
+    [$class, $label] = match ($status) {
+        'applied' => ['ok', 'Applied'],
+        'baseline' => ['ok', 'Baselined'],
+        default => ['fail', 'Failed'],
+    };
+
+    return '<span class="badge ' . $class . '">' . $label . '</span>';
+}

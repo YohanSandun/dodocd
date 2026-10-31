@@ -8,6 +8,7 @@ use Dodo\Crypto;
 use Dodo\Db\Migrator;
 use Dodo\Db\Sqlite;
 use Dodo\Path;
+use Dodo\Sites\Sites;
 use PDO;
 use RuntimeException;
 use Throwable;
@@ -24,7 +25,7 @@ final class Installer
      *     data_dir: string,
      *     admin: array{name: string, email: string, password_hash: string},
      *     site: array{name: string, url: string, target_path: string},
-     *     database: ?array{host: string, port: int, name: string, user: string, pass: string},
+     *     database: ?array{host: string, port: int, name: string, username: string, password: string},
      * } $input
      * @return string The main site's deploy token. Only its hash is stored, so this is the one chance to show it.
      */
@@ -40,11 +41,10 @@ final class Installer
         (new Migrator($pdo, DODO_AGENT . '/migrations'))->migrate();
 
         $appKey = Crypto::generateKey();
-        $token = 'dodo_' . bin2hex(random_bytes(32));
 
         $pdo->beginTransaction();
         try {
-            $this->seed($pdo, $input, new Crypto($appKey), $token);
+            $token = $this->seed($pdo, $input, new Crypto($appKey));
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
@@ -89,47 +89,23 @@ final class Installer
         return $excluded;
     }
 
-    private function seed(PDO $pdo, array $input, Crypto $crypto, string $token): void
+    /** @return string The main site's deploy token. */
+    private function seed(PDO $pdo, array $input, Crypto $crypto): string
     {
         $now = dodo_now();
         $admin = $input['admin'];
-        $site = $input['site'];
         $database = $input['database'];
 
         $pdo->prepare('INSERT INTO users (name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)')
             ->execute([$admin['name'], $admin['email'], $admin['password_hash'], 'admin', $now]);
         $userId = (int) $pdo->lastInsertId();
 
-        $pdo->prepare('INSERT INTO sites (slug, name, url, target_path, excluded_paths, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)')
-            ->execute([
-                self::slug($site['name']),
-                $site['name'],
-                $site['url'],
-                $site['target_path'],
-                json_encode(self::excludedPaths($site['target_path'], $input['data_dir']), JSON_UNESCAPED_SLASHES),
-                $now,
-                $now,
-            ]);
-        $siteId = (int) $pdo->lastInsertId();
+        $site = Sites::create($pdo, $input['site'], $input['data_dir']);
+        $siteId = $site['id'];
 
         if ($database !== null) {
-            $pdo->prepare('INSERT INTO site_databases (site_id, driver, host, port, name, username, password_enc, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([
-                    $siteId,
-                    'mysql',
-                    $database['host'],
-                    $database['port'],
-                    $database['name'],
-                    $database['user'],
-                    $crypto->encrypt($database['pass']),
-                    $now,
-                ]);
+            Sites::saveDatabase($pdo, $siteId, $database, $crypto);
         }
-
-        $pdo->prepare('INSERT INTO api_tokens (site_id, name, prefix, token_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-            ->execute([$siteId, 'Default deploy token', substr($token, 0, 12), hash('sha256', $token), $now]);
 
         $setting = $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
         $setting->execute(['schema_version', DODO_VERSION]);
@@ -137,6 +113,8 @@ final class Installer
 
         $pdo->prepare('INSERT INTO audit_log (user_id, site_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)')
             ->execute([$userId, $siteId, 'install', json_encode(['version' => DODO_VERSION], JSON_UNESCAPED_SLASHES), $now]);
+
+        return $site['token'];
     }
 
     /** Keeps a database left behind by an earlier, unfinished install instead of deleting it. */
@@ -175,12 +153,5 @@ final class Installer
         if (function_exists('opcache_invalidate')) {
             opcache_invalidate(DODO_CONFIG, true);
         }
-    }
-
-    private static function slug(string $name): string
-    {
-        $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($name)), '-');
-
-        return $slug !== '' ? $slug : 'main';
     }
 }

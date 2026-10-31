@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use Dodo\AppDb\Connection;
 use Dodo\Crypto;
 use Dodo\Installer\DataDir;
 use Dodo\Installer\Installer;
 use Dodo\Installer\Requirements;
 use Dodo\Installer\SetupLock;
 use Dodo\Path;
+use Dodo\Sites\Sites;
 
 /**
  * Setup wizard controller. Included by index.php only while DodoCD is not installed.
@@ -79,34 +81,6 @@ function setup_complete(string $step): never
     dodo_redirect('/setup/' . $keys[array_search($step, $keys, true) + 1]);
 }
 
-/** @return array{host: string, port: int, name: string, user: string, pass: string} */
-function setup_database_input(): array
-{
-    return [
-        'host' => trim((string) ($_POST['db_host'] ?? '')),
-        'port' => (int) ($_POST['db_port'] ?? 3306),
-        'name' => trim((string) ($_POST['db_name'] ?? '')),
-        'user' => trim((string) ($_POST['db_user'] ?? '')),
-        'pass' => (string) ($_POST['db_pass'] ?? ''),
-    ];
-}
-
-function setup_validate_database(array $db): array
-{
-    $errors = [];
-    if (!extension_loaded('pdo_mysql')) {
-        $errors[] = 'The pdo_mysql extension is not available on this server.';
-    }
-    if ($db['host'] === '' || $db['name'] === '' || $db['user'] === '') {
-        $errors[] = 'Host, database name and user are required.';
-    }
-    if ($db['port'] < 1 || $db['port'] > 65535) {
-        $errors[] = 'Port must be between 1 and 65535.';
-    }
-
-    return $errors;
-}
-
 if ($isPost) {
     if (!hash_equals($_SESSION['csrf'], (string) ($_POST['_csrf'] ?? ''))) {
         setup_fail(400, 'This form has expired. Reload the page and try again.');
@@ -118,14 +92,14 @@ if ($isPost) {
 }
 
 if ($step === 'test-db' && $isPost) {
-    $db = setup_database_input();
-    $errors = setup_validate_database($db);
-    $result = $errors ? implode(' ', $errors) : testDbConnection($db['host'], $db['name'], $db['user'], $db['pass'], $db['port']);
+    $db = Connection::fromPost();
+    $errors = Connection::validate($db);
+    $error = $errors ? implode(' ', $errors) : Connection::test($db);
 
     header('Content-Type: application/json');
     echo json_encode([
-        'ok' => $result === true,
-        'message' => $result === true ? 'Connected successfully.' : $result,
+        'ok' => $error === null,
+        'message' => $error ?? 'Connected successfully.',
     ]);
     exit;
 }
@@ -225,28 +199,8 @@ switch ($step) {
         ];
 
         if ($isPost) {
-            $site = [
-                'name' => trim((string) ($_POST['name'] ?? '')),
-                'url' => rtrim(trim((string) ($_POST['url'] ?? '')), '/'),
-                'target_path' => trim((string) ($_POST['target_path'] ?? '')),
-            ];
-
-            if ($site['name'] === '') {
-                $errors[] = 'Name is required.';
-            }
-            if (filter_var($site['url'], FILTER_VALIDATE_URL) === false
-                || !in_array(parse_url($site['url'], PHP_URL_SCHEME), ['http', 'https'], true)) {
-                $errors[] = 'Enter the site URL, starting with http:// or https://.';
-            }
-            if (!Path::isAbsolute($site['target_path'])) {
-                $errors[] = 'The target path must be absolute.';
-            } elseif (!Path::allowedByOpenBasedir($site['target_path']) || !is_dir($site['target_path'])) {
-                $errors[] = 'The target path does not exist or PHP cannot reach it.';
-            } elseif (!is_writable($site['target_path'])) {
-                $errors[] = 'PHP cannot write to the target path, so deploys would fail.';
-            } elseif (Path::isWithin($site['target_path'], DODO_ROOT)) {
-                $errors[] = 'The target path cannot be DodoCD\'s own folder.';
-            }
+            $site = Sites::fromPost();
+            $errors = Sites::validate($site, $state['data_dir']);
 
             if (!$errors) {
                 $site['target_path'] = Path::canonical($site['target_path']);
@@ -265,7 +219,7 @@ switch ($step) {
 
     case 'database':
         $errors = [];
-        $db = $state['database'] ?? ['host' => 'localhost', 'port' => 3306, 'name' => '', 'user' => ''];
+        $db = $state['database'] ?? ['host' => 'localhost', 'port' => 3306, 'name' => '', 'username' => ''];
 
         if ($isPost) {
             if (($_POST['action'] ?? '') === 'skip') {
@@ -273,16 +227,16 @@ switch ($step) {
                 setup_complete($step);
             }
 
-            $db = setup_database_input();
-            $errors = setup_validate_database($db);
+            $db = Connection::fromPost();
+            $errors = Connection::validate($db);
 
             if (!$errors) {
-                $result = testDbConnection($db['host'], $db['name'], $db['user'], $db['pass'], $db['port']);
-                if ($result === true) {
+                $error = Connection::test($db);
+                if ($error === null) {
                     $state['database'] = $db;
                     setup_complete($step);
                 }
-                $errors[] = 'Could not connect: ' . $result;
+                $errors[] = $error;
             }
         }
 

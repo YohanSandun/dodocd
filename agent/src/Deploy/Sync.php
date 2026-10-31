@@ -19,6 +19,12 @@ use RuntimeException;
  */
 final class Sync
 {
+    /**
+     * Release folder for DodoCD itself (e.g. migrations). Never copied into the target, but
+     * still in the previous release's list, so copies made by older releases get deleted.
+     */
+    public const RELEASE_ONLY = '.dodocd';
+
     /** @var array{added: int, updated: int, unchanged: int, deleted: int, skipped: int} */
     public array $stats = ['added' => 0, 'updated' => 0, 'unchanged' => 0, 'deleted' => 0, 'skipped' => 0];
 
@@ -35,7 +41,7 @@ final class Sync
 
     public function run(string $source, ?string $previous): void
     {
-        $files = Filesystem::files($source);
+        $files = array_values(array_filter(Filesystem::files($source), fn (string $file) => !self::isReleaseOnly($file)));
 
         foreach ($files as $relative) {
             if ($this->isExcluded($relative)) {
@@ -69,7 +75,8 @@ final class Sync
         }
 
         // Remove folders the previous release created that are now empty, deepest first.
-        $currentDirs = array_flip(array_map(self::key(...), Filesystem::directories($source)));
+        $currentDirs = array_flip(array_map(self::key(...),
+            array_filter(Filesystem::directories($source), fn (string $dir) => !self::isReleaseOnly($dir))));
         $oldDirs = Filesystem::directories($previous);
         usort($oldDirs, fn (string $a, string $b) => strlen($b) <=> strlen($a));
 
@@ -119,6 +126,11 @@ final class Sync
         }
 
         return false;
+    }
+
+    private static function isReleaseOnly(string $relative): bool
+    {
+        return Path::isWithin('/' . $relative, '/' . self::RELEASE_ONLY);
     }
 
     /** Comparison key for a relative path; Windows filesystems are case-insensitive. */

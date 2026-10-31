@@ -6,8 +6,10 @@
  * @var string|null $current
  * @var array<string, bool>|null $done
  * @var array|null $user The signed-in user, if any.
+ * @var string|null $flash A success message from the previous request.
  */
 $user ??= null;
+$flash ??= null;
 $steps ??= null;
 $current ??= null;
 $done ??= [];
@@ -90,6 +92,13 @@ $done ??= [];
         table.list td.release { white-space: normal; width: 100%; min-width: 180px; }
         .badge + .badge, h2 .badge { margin-left: 6px; vertical-align: middle; }
         .fail-text { color: var(--fail); }
+        .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 20px; border-bottom: 1px solid var(--border); }
+        .tabs a { padding: 6px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+        .tabs a.current { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+        .page-actions { display: flex; justify-content: flex-end; margin: -8px 0 12px; }
+        .site-links { font-size: 14px; }
+        select { width: 100%; padding: 9px 11px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+        button.danger { background: transparent; color: var(--fail); border-color: var(--fail); }
         form.inline { display: inline; }
         .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
         button.small { padding: 4px 10px; font-size: 13px; }
@@ -128,6 +137,9 @@ $done ??= [];
     <?php endif ?>
 
     <section class="card">
+        <?php if ($flash): ?>
+            <div class="alert ok" role="status"><?= e($flash) ?></div>
+        <?php endif ?>
         <?= $content ?>
     </section>
 </main>
@@ -147,9 +159,12 @@ $done ??= [];
                 event.preventDefault();
                 return;
             }
-            const button = form.querySelector('button');
-            button.disabled = true;
-            button.textContent = 'Working…';
+            // After the form data is collected: a disabled submit button would be left out of it.
+            const button = event.submitter || form.querySelector('button');
+            setTimeout(() => {
+                button.disabled = true;
+                button.textContent = 'Working…';
+            });
         });
     }
 </script>
