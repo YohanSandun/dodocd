@@ -12,6 +12,10 @@ use Dodo\Auth\Session;
 use Dodo\Deploy\Deployer;
 use Dodo\Deploy\DeployException;
 use Dodo\Sites\Sites;
+use Dodo\Update\Package;
+use Dodo\Update\Releases;
+use Dodo\Update\Updater;
+use Dodo\Update\UpdateException;
 
 /**
  * Dashboard controller for the signed-in admin. Included by index.php once DodoCD is installed.
@@ -31,7 +35,7 @@ header('Cache-Control: no-store');
 
 function app_render(string $title, string $view, array $vars = [], int $status = 200): never
 {
-    global $user;
+    global $user, $pdo;
 
     $flash = $_SESSION['flash'] ?? null;
     unset($_SESSION['flash']);
@@ -41,6 +45,7 @@ function app_render(string $title, string $view, array $vars = [], int $status =
         'title' => $title,
         'user' => $user,
         'flash' => $flash,
+        'updateAvailable' => $user !== null ? Releases::newer($pdo) : null,
         'content' => dodo_view($view, $vars + ['errors' => []]),
     ]);
     exit;
@@ -217,6 +222,107 @@ if (preg_match('#^/deployments/(\d+)$#', $path, $matches)) {
             ? MigrationLog::drift($pdo, $siteId, app_deployer()->releaseDir($siteId, (int) $deployment['release_id']))
             : null,
     ]);
+}
+
+if ($path === '/update' || str_starts_with($path, '/update/')) {
+    $updater = new Updater($pdo, $dataDir);
+    $updatePage = substr($path, strlen('/update'));
+    $errors = [];
+
+    if ($updatePage === '/check') {
+        if (!$isPost) {
+            app_fail(405, 'Use the Check now button.');
+        }
+        if (Releases::check($pdo)['error'] === null) {
+            app_flash('Checked for updates.');
+        }
+        dodo_redirect('/update');
+    }
+
+    if ($updatePage === '/upload') {
+        if (!$isPost) {
+            app_fail(405, 'Use the upload form.');
+        }
+        $upload = $_FILES['package'] ?? null;
+        if ($upload === null || is_array($upload['error']) || $upload['error'] === UPLOAD_ERR_NO_FILE) {
+            $errors[] = 'Choose the package zip (dodocd-x.y.z.zip) to upload.';
+        } elseif ($upload['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($upload['tmp_name'])) {
+            $errors[] = "The upload failed (PHP upload error {$upload['error']}). Check upload_max_filesize and post_max_size.";
+        } else {
+            try {
+                $_SESSION['update'] = $updater->stage($upload['tmp_name']);
+                dodo_redirect('/update/review');
+            } catch (UpdateException|DeployException $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+        $updatePage = '';
+    }
+
+    if ($updatePage === '/review') {
+        $id = (string) ($_SESSION['update'] ?? '');
+
+        if ($isPost && ($_POST['action'] ?? '') === 'discard') {
+            unset($_SESSION['update']);
+            $updater->discardAll();
+            app_flash('Discarded the uploaded package.');
+            dodo_redirect('/update');
+        }
+
+        if ($isPost) {
+            // Like a deploy, an update must not stop halfway if the browser goes away.
+            ignore_user_abort(true);
+            @set_time_limit(0);
+            try {
+                $result = $updater->apply($id, ($_POST['allow_unsigned'] ?? '') === '1');
+                unset($_SESSION['update']);
+                // From here on, DodoCD's files are the new version's. Only code that's already loaded runs.
+                app_audit('update_installed', null, [
+                    'from' => $result['from'], 'to' => $result['to'], 'signed' => $result['signed'],
+                    'backup' => basename($result['backup']), 'stats' => $result['stats'],
+                ]);
+                app_flash("DodoCD was updated from {$result['from']} to {$result['to']}. The previous version is backed up in {$result['backup']}.");
+                dodo_redirect('/update');
+            } catch (UpdateException|DeployException|RuntimeException $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+
+        try {
+            $package = $updater->load($id);
+            $installed = Package::installedFiles(DODO_ROOT);
+            app_render('Review update', 'update_review', [
+                'package' => $package,
+                'changes' => $package->changes(DODO_ROOT, $installed),
+                'fromPackage' => $installed !== null,
+                'errors' => $errors,
+            ], $errors ? 422 : 200);
+        } catch (UpdateException $e) {
+            unset($_SESSION['update']);
+            $errors[] = $e->getMessage();
+            $updatePage = '';
+        }
+    }
+
+    if ($updatePage !== '') {
+        app_fail(404, 'Page not found.');
+    }
+
+    $check = Releases::cached($pdo);
+    if (!$isPost && Releases::stale($check)) {
+        $check = Releases::check($pdo);
+    }
+    $history = $pdo->query("SELECT a.details, a.created_at, u.name AS user_name FROM audit_log a
+                            LEFT JOIN users u ON u.id = a.user_id
+                            WHERE a.action = 'update_installed' ORDER BY a.id DESC LIMIT 10")->fetchAll();
+
+    app_render('Updates', 'update', [
+        'check' => $check,
+        'history' => $history,
+        'staged' => isset($_SESSION['update']),
+        'uploadLimit' => (string) ini_get('upload_max_filesize'),
+        'errors' => $errors,
+    ], $errors ? 422 : 200);
 }
 
 if ($path === '/sites/new') {

@@ -8,3 +8,6 @@
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Package builds (tools/build-package.php)
+/build/

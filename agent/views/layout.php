@@ -7,9 +7,11 @@
  * @var array<string, bool>|null $done
  * @var array|null $user The signed-in user, if any.
  * @var string|null $flash A success message from the previous request.
+ * @var array|null $updateAvailable Releases::newer(), for signed-in users.
  */
 $user ??= null;
 $flash ??= null;
+$updateAvailable ??= null;
 $steps ??= null;
 $current ??= null;
 $done ??= [];
@@ -103,6 +105,12 @@ $done ??= [];
         .buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
         button.small { padding: 4px 10px; font-size: 13px; }
         .prewrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+        label.checkbox { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; margin-top: 16px; }
+        label.checkbox input { margin-top: 4px; }
+        input[type=file] { display: block; font: inherit; }
+        details { margin-top: 6px; }
+        summary { cursor: pointer; }
+        .footer { margin-top: 16px; text-align: center; font-size: 13px; color: var(--muted); }
         pre.log { margin: 0; padding: 12px; max-height: 70vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     </style>
 </head>
@@ -113,6 +121,10 @@ $done ??= [];
             <h1 class="brand"><a href="<?= e(dodo_url('/')) ?>">DodoCD</a></h1>
             <form method="post" action="<?= e(dodo_url('/logout')) ?>">
                 <?= dodo_csrf_field() ?>
+                <a href="<?= e(dodo_url('/update')) ?>">Updates</a>
+                <?php if ($updateAvailable !== null): ?>
+                    <span class="badge warn" title="DodoCD <?= e($updateAvailable['version']) ?> is available">New</span>
+                <?php endif ?>
                 <span><?= e($user['name']) ?></span>
                 <button type="submit" class="secondary">Sign out</button>
             </form>
@@ -142,6 +154,9 @@ $done ??= [];
         <?php endif ?>
         <?= $content ?>
     </section>
+    <?php if ($user): ?>
+        <p class="footer">DodoCD <?= e(DODO_VERSION) ?></p>
+    <?php endif ?>
 </main>
 <script>
     // Timestamps are rendered in UTC; show them in the viewer's own time zone.

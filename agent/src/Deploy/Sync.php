@@ -41,6 +41,35 @@ final class Sync
 
     public function run(string $source, ?string $previous): void
     {
+        $this->sync($source,
+            $previous === null ? null : Filesystem::files($previous),
+            $previous === null ? [] : Filesystem::directories($previous));
+    }
+
+    /**
+     * Like run(), with the previous release given as a list of files instead of a folder.
+     * DodoCD's self-update uses it with the installed package's manifest.
+     *
+     * @param list<string>|null $previousFiles Paths relative to the target, or null to delete nothing.
+     */
+    public function runWithFileList(string $source, ?array $previousFiles): void
+    {
+        $dirs = [];
+        foreach ($previousFiles ?? [] as $file) {
+            for ($dir = dirname($file); $dir !== '.' && $dir !== ''; $dir = dirname($dir)) {
+                $dirs[$dir] = true;
+            }
+        }
+
+        $this->sync($source, $previousFiles, array_keys($dirs));
+    }
+
+    /**
+     * @param list<string>|null $previousFiles
+     * @param list<string> $previousDirs
+     */
+    private function sync(string $source, ?array $previousFiles, array $previousDirs): void
+    {
         $files = array_values(array_filter(Filesystem::files($source), fn (string $file) => !self::isReleaseOnly($file)));
 
         foreach ($files as $relative) {
@@ -55,12 +84,12 @@ final class Sync
             ($this->log)("Skipped {$this->stats['skipped']} files inside protected paths (" . implode(', ', $this->excluded) . ').');
         }
 
-        if ($previous === null) {
+        if ($previousFiles === null) {
             return;
         }
 
         $current = array_flip(array_map(self::key(...), $files));
-        foreach (Filesystem::files($previous) as $relative) {
+        foreach ($previousFiles as $relative) {
             if (isset($current[self::key($relative)]) || $this->isExcluded($relative)) {
                 continue;
             }
@@ -77,7 +106,7 @@ final class Sync
         // Remove folders the previous release created that are now empty, deepest first.
         $currentDirs = array_flip(array_map(self::key(...),
             array_filter(Filesystem::directories($source), fn (string $dir) => !self::isReleaseOnly($dir))));
-        $oldDirs = Filesystem::directories($previous);
+        $oldDirs = $previousDirs;
         usort($oldDirs, fn (string $a, string $b) => strlen($b) <=> strlen($a));
 
         foreach ($oldDirs as $relative) {

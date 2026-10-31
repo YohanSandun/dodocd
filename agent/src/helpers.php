@@ -68,9 +68,35 @@ function dodo_db(): PDO
         $config = dodo_config() ?? throw new RuntimeException('DodoCD is not installed.');
         $pdo = Dodo\Db\Sqlite::open(Dodo\Db\Sqlite::path($config['data_dir']));
         (new Dodo\Db\Migrator($pdo, DODO_AGENT . '/migrations'))->migrate();
+        dodo_record_version($pdo);
     }
 
     return $pdo;
+}
+
+/**
+ * Keeps settings.schema_version and settings.capabilities current after an update, whether it
+ * was made from the dashboard or by replacing the files by hand. Writes only when the version changed.
+ */
+function dodo_record_version(PDO $pdo): void
+{
+    $statement = $pdo->prepare('SELECT value FROM settings WHERE key = ?');
+    $statement->execute(['schema_version']);
+    if ($statement->fetchColumn() === DODO_VERSION) {
+        return;
+    }
+
+    $setting = $pdo->prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    $setting->execute(['schema_version', DODO_VERSION]);
+    $setting->execute(['capabilities', json_encode(Dodo\Installer\Requirements::capabilities())]);
+}
+
+/** Whether DodoCD is replacing its own files right now (see Update\Updater). */
+function dodo_updating(): bool
+{
+    $config = dodo_config();
+
+    return $config !== null && Dodo\Update\Updater::inMaintenance($config['data_dir']);
 }
 
 /** Converts php.ini shorthand like "64M" to bytes. */
