@@ -1,5 +1,5 @@
 # Builds the DodoCD package (dodocd-x.y.z.zip with a signed manifest).
-# Pushing a tag like v0.2.0 publishes it as a GitHub release; DODO_VERSION must match the tag.
+# Pushing a tag like v1.2.0 publishes it as a GitHub release; DODO_VERSION must match the tag.
 # Running it by hand builds a package as a workflow artifact, without publishing anything.
 name: Release
 

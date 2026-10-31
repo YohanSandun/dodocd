@@ -2,7 +2,7 @@
 
 Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
 
-**Status:** early development. Done so far: the setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks, multiple sites, deploy token management, and SQL migrations for each site's own MySQL database. Planned: database backups before migrating, status monitoring.
+**Version 1.0.** A setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks, multiple sites, deploy token management, SQL migrations for each site's own MySQL database, and updates from signed packages. Planned: database backups before migrating, status monitoring.
 
 ## Requirements
 
@@ -12,13 +12,13 @@ Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI
 | Extensions | `pdo_sqlite`, `zip`, `json`, and `sodium` or `openssl` |
 | SQLite library | 3.7.17 or newer (3.25+ recommended) |
 | Web server | Apache with `mod_rewrite`, or LiteSpeed, with `.htaccess` enabled |
-| Optional | `pdo_mysql`, needed for database migrations |
+| Optional | `pdo_mysql`, needed for database migrations. `curl` or `allow_url_fopen`, needed to check for updates |
 
 The largest zip you can deploy is limited by PHP's `upload_max_filesize` and `post_max_size`. The setup wizard checks all of this for you.
 
 ## Installation
 
-1. Upload DodoCD to a folder inside your web root, e.g. `public_html/dodocd`.
+1. Download `dodocd-x.y.z.zip` from the [releases page](https://github.com/YohanSandun/dodocd/releases), unzip it, and upload the `dodocd` folder into your web root, e.g. as `public_html/dodocd`. A copy of this repository works too, but only an install made from a package lets [updates](#updating-dodocd) delete files that newer versions no longer have.
 2. Open `https://example.com/dodocd/` in a browser. You'll be taken to the setup wizard.
 3. Go through the steps:
    - **Requirements:** checks the server. Red items must be fixed first.
@@ -134,7 +134,7 @@ On failure, `ok` is `false` and `error` says why. The `deployment` object (with 
 | 413 | The upload is larger than PHP's upload limits |
 | 422 | Bad request, invalid archive (e.g. a path with `../`, a symlink, an empty zip), or a migration problem: a failing statement, an edited migration, a database that needs a baseline, or migrations with no database configured |
 | 500 | The deploy failed while copying files. The previous release was restored if possible. |
-| 503 | DodoCD isn't installed yet, or the site's database can't be reached |
+| 503 | DodoCD isn't installed yet, is [updating itself](#updating-dodocd), or the site's database can't be reached |
 
 ## Dashboard
 
@@ -249,6 +249,32 @@ Things to know:
 - **First deploy:** nothing is deleted, because there's no previous release to compare against.
 - **Mixed files:** while files are being copied, visitors can briefly see a mix of old and new files.
 
+## Updating DodoCD
+
+The **Updates** page, linked at the top of the dashboard, shows the running version and checks GitHub for a newer release. It checks when you open the page, at most every 12 hours, or when you click **Check now**. When a newer release exists, a **New** badge appears next to **Updates** on every page.
+
+To update:
+
+1. Download `dodocd-x.y.z.zip` from the [releases page](https://github.com/YohanSandun/dodocd/releases). The Updates page links to it.
+2. Upload it on the Updates page. Nothing changes yet.
+3. Review it: the version, whether it's signed, which files are added, changed and removed, and whether this server meets its requirements.
+4. Click **Install**. It takes a few seconds.
+
+What **Install** does:
+
+- **Checks the package again.** Every file must match the SHA-256 listed in the package's manifest, and the manifest's signature must match DodoCD's release key.
+- **Pauses deploys.** It doesn't start while a deploy or rollback is running. While it installs, every request, including deploys from CI, gets a 503 "DodoCD is updating itself".
+- **Backs up** DodoCD's code and its database to `backups/update-…` in the data directory, with a `RESTORE.txt` that explains how to go back. The 3 newest backups are kept.
+- **Copies the new files in**, the same way a deploy does. Files the old version had and the new one doesn't are deleted. `agent/config.php`, `storage/` and the data directory are never touched. If copying fails, the old files are copied back.
+- The new version's database changes run on the next page load.
+
+Things to know:
+
+- **Signed packages.** Packages on the releases page are signed, and the review page says so. A package that isn't signed, for example one you built yourself, can still be installed, but only after a strong warning and a confirmation: installing a package runs its code with full access to your sites, database passwords and deploy tokens. A package whose signature doesn't match is always refused.
+- **No downgrades.** DodoCD's database changes only go forward, so an older version is refused. To go back, follow the `RESTORE.txt` in the backup.
+- **Installs from a copy of the repository** have no manifest, so the first update leaves files that the new version no longer has in place. That's harmless, and later updates delete removed files.
+- **Updating by hand** still works: replace DodoCD's files, keeping `agent/config.php` and `storage/`, then open the dashboard.
+
 ## Testing locally with XAMPP
 
 Point the site at **its own folder**, e.g. `D:/xampp8/htdocs/myapp`, not at `htdocs` itself:
@@ -267,6 +293,7 @@ To try migrations, start MySQL in the XAMPP control panel and create an empty da
 - Dashboard sessions are stored in the data directory, not in the host's shared session folder.
 - Site database passwords are encrypted with the key in `agent/config.php`. If that file is replaced, enter the passwords again on each site's **Database** page.
 - Until setup finishes, anyone who opens the setup URL can install. Complete setup right after uploading. A second browser can't run setup while one is in progress.
+- Update packages are checked against the release key built into DodoCD before anything is installed. Install an unsigned package only if you built it yourself.
 
 ## Development
 
@@ -281,8 +308,38 @@ To try migrations, start MySQL in the XAMPP control panel and create an empty da
 | `agent/src/Deploy/` | Zip validation, file copying, deploy orchestration |
 | `agent/src/AppDb/` | Site database connections, SQL splitting, migration runner and log |
 | `agent/src/Sites/` | Adding and validating sites and their database settings |
+| `agent/src/Update/` | Update packages, signature checks, the update check and installing updates |
 | `agent/migrations/` | DodoCD's own SQLite schema |
+| `tools/` | Building release packages and creating the signing key |
+| `.github/workflows/release.yml` | Builds and publishes a release when a version tag is pushed |
 
 Plain PHP: no Composer, no build step. Classes in the `Dodo\` namespace are autoloaded from `agent/src/`.
 
 DodoCD's own schema changes go in a new numbered file in `agent/migrations/`. They're applied automatically on the next request. Keep them compatible with SQLite 3.7.17: no `UPSERT`, `RENAME COLUMN`, `DROP COLUMN`, window functions or `RETURNING`.
+
+### Releasing
+
+A release is a GitHub release with `dodocd-x.y.z.zip` and its `.sha256`. The zip holds a single `dodocd` folder with:
+- the repository's files, without `.github/`, `tools/`, `CLAUDE.md` and `.gitignore`;
+- `agent/manifest.json`, with the version, the requirements and every file's SHA-256;
+- `agent/manifest.json.sig`, the manifest's signature.
+
+1. Set `DODO_VERSION` in `agent/bootstrap.php` to the new version. Commit and push.
+2. Tag the commit and push the tag:
+
+   ```bash
+   git tag -a v1.2.0 -m "DodoCD 1.2.0"
+   git push origin v1.2.0
+   ```
+
+3. The **Release** workflow lints, builds and signs the package, and publishes the release with generated notes. It fails if the tag doesn't match `DODO_VERSION`, or if the signing key is missing or isn't one DodoCD trusts.
+
+Running the workflow by hand (Actions → Release → Run workflow) builds a package as a workflow artifact without publishing anything.
+
+To build locally, run `php tools/build-package.php [--key path/to/key.pem]`. It writes `build/dodocd-x.y.z.zip`, unsigned without a key, and includes uncommitted changes with a warning.
+
+**Signing key.** Packages are signed with ECDSA P-256. The private key is the repository secret `DODOCD_SIGNING_KEY`, and the public keys DodoCD trusts are in `Dodo\Update\Signature::PUBLIC_KEYS`. Keep a copy of the private key in a password manager.
+
+- **Create a key:** `php tools/generate-signing-key.php <file outside the repository>`. It prints the public key to add to `PUBLIC_KEYS`.
+- **Replace a key:** add the new public key to `PUBLIC_KEYS` and release that version, signed with the old key. Then switch the secret to the new key, and remove the old public key in a later release. Installs only learn about a new key through an update.
+- **If the private key leaks,** anyone can make packages that installs trust. Replace it straight away, as above.
