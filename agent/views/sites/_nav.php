@@ -3,9 +3,9 @@
  * Heading and tabs for a site's pages.
  *
  * @var array $site
- * @var string $current One of settings, database, migrations.
+ * @var string $current One of settings, tokens, database, migrations.
  */
-$tabs = ['settings' => 'Settings', 'database' => 'Database', 'migrations' => 'Migrations'];
+$tabs = ['settings' => 'Settings', 'tokens' => 'Deploy tokens', 'database' => 'Database', 'migrations' => 'Migrations'];
 ?>
 <p><a href="<?= e(dodo_url('/')) ?>">← Dashboard</a></p>
 <h2><?= e($site['name']) ?></h2>
