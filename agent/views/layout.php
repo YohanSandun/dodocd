@@ -15,6 +15,8 @@ $updateAvailable ??= null;
 $steps ??= null;
 $current ??= null;
 $done ??= [];
+// The dodo, inlined: agent/ isn't served over the web, and this avoids an extra request.
+$logo = (string) file_get_contents(__DIR__ . '/dodo.svg');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -23,6 +25,7 @@ $done ??= [];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($title) ?> · DodoCD</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,<?= base64_encode($logo) ?>">
     <style>
         :root {
             --bg: #f5f6f8; --card: #ffffff; --text: #1d2329; --muted: #5f6b76; --border: #dce1e6;
@@ -39,7 +42,11 @@ $done ??= [];
         * { box-sizing: border-box; }
         body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
         main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
-        .brand { margin: 0 0 20px; font-size: 22px; letter-spacing: -0.01em; }
+        .brand { display: flex; align-items: center; gap: 8px; margin: 0 0 20px; font-size: 22px; letter-spacing: -0.01em; }
+        .brand svg { width: 36px; height: 36px; flex: none; }
+        .masthead { margin: 0 0 20px; }
+        .masthead .brand { margin: 0; }
+        .tagline { margin: 2px 0 0 44px; color: var(--muted); font-size: 14px; }
         .steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0 0 16px; counter-reset: step; }
         .steps li { counter-increment: step; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; }
         .steps li::before { content: counter(step) ". "; }
@@ -84,7 +91,7 @@ $done ??= [];
         h3 { margin: 22px 0 8px; font-size: 16px; }
         .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; }
         .topbar .brand { margin: 0; }
-        .topbar .brand a { color: inherit; text-decoration: none; }
+        .topbar .brand a { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
         .topbar form { display: flex; align-items: center; gap: 10px; color: var(--muted); }
         .topbar button { padding: 5px 12px; font-size: 13px; }
         .site + .site { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
@@ -118,7 +125,7 @@ $done ??= [];
 <main>
     <?php if ($user): ?>
         <header class="topbar">
-            <h1 class="brand"><a href="<?= e(dodo_url('/')) ?>">DodoCD</a></h1>
+            <h1 class="brand"><a href="<?= e(dodo_url('/')) ?>"><?= $logo ?>DodoCD</a></h1>
             <form method="post" action="<?= e(dodo_url('/logout')) ?>">
                 <?= dodo_csrf_field() ?>
                 <a href="<?= e(dodo_url('/update')) ?>">Updates</a>
@@ -130,7 +137,10 @@ $done ??= [];
             </form>
         </header>
     <?php else: ?>
-        <h1 class="brand">DodoCD</h1>
+        <header class="masthead">
+            <h1 class="brand"><?= $logo ?>DodoCD</h1>
+            <p class="tagline">Not extinct. Just deployed.</p>
+        </header>
     <?php endif ?>
 
     <?php if ($steps): ?>

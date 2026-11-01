@@ -1,6 +1,12 @@
-# DodoCD
+<p align="center"><img src="agent/views/dodo.svg" width="120" alt="The DodoCD dodo"></p>
 
-Self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
+<h1 align="center">DodoCD</h1>
+
+<p align="center"><strong>Not extinct. Just deployed.</strong></p>
+
+The dodo didn't make it. Shared hosting did: millions of PHP sites still run on it. Modern CI/CD left those sites behind, with no SSH, no containers and no runners, so deploying still means dragging files over FTP. DodoCD brings CI/CD to them.
+
+DodoCD is self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
 
 **Version 1.0.** A setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks, multiple sites, deploy token management, SQL migrations for each site's own MySQL database, and updates from signed packages. Planned: database backups before migrating, status monitoring.
 
