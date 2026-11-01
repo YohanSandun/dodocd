@@ -2,13 +2,39 @@
 
 <h1 align="center">DodoCD</h1>
 
-<p align="center"><strong>Not extinct. Just deployed.</strong></p>
+<p align="center">
+  <strong>Not extinct. Just deployed.</strong><br>
+  Self-hosted, push-to-deploy CI/CD for PHP sites on shared hosting.
+</p>
 
-The dodo didn't make it. Shared hosting did: millions of PHP sites still run on it. Modern CI/CD left those sites behind, with no SSH, no containers and no runners, so deploying still means dragging files over FTP. DodoCD brings CI/CD to them.
+<p align="center">
+  <a href="https://github.com/YohanSandun/dodocd/releases/latest/download/dodocd.zip"><img src="https://img.shields.io/github/v/release/YohanSandun/dodocd?label=Download&style=for-the-badge&color=2f6fde" alt="Download the latest DodoCD"></a>
+</p>
 
-DodoCD is self-hosted CI/CD for PHP sites on shared hosting (Apache or LiteSpeed). Your CI pipeline builds a zip and sends it to DodoCD, which puts it live on your site.
+<p align="center">
+  <a href="#installation">Get started</a> · <a href="#example-github-actions-workflow">GitHub Actions example</a> · <a href="https://github.com/YohanSandun/dodocd/releases">Release notes</a>
+</p>
 
-**Version 1.0.** A setup wizard, the zip deploy endpoint, a dashboard with deploy history, rollbacks, multiple sites, deploy token management, SQL migrations for each site's own MySQL database, and updates from signed packages. Planned: database backups before migrating, status monitoring.
+The dodo didn't make it. Shared hosting did: a huge share of the web's PHP sites still runs on it. But modern CI/CD moved on to containers, SSH and build runners, and left those sites behind with FTP uploads and crossed fingers.
+
+**DodoCD brings CI/CD back to them.** Upload one folder to your hosting, run the setup wizard, and from then on every build from your pipeline goes live with a single request:
+
+```bash
+curl -H "Authorization: Bearer $DODOCD_TOKEN" -F archive=@release.zip \
+  https://example.com/dodocd/api/sites/main-site/deploy
+```
+
+## Why DodoCD
+
+- **Runs where your site already lives.** Plain PHP 8.1+ on Apache or LiteSpeed. No SSH, no root, no Docker, no Node on the server.
+- **Works with any CI.** GitHub Actions, GitLab CI, Bitbucket Pipelines, Jenkins: if it can run `curl`, it can deploy.
+- **Deploys that don't wreck your site.** Every zip is checked before it's unpacked. Only files from your previous release are ever deleted, so `.env`, uploads and caches stay put. If copying fails, the previous release is restored.
+- **Rollbacks from the dashboard.** Your recent releases are kept, and any of them can be made live again.
+- **Database migrations.** Ship `.sql` files in the zip. They run before any file is copied, and a failing one keeps the old release live.
+- **One dashboard for all your sites,** with deploy history, full logs and per-site deploy tokens.
+- **Updates itself** from signed release packages, with a backup first.
+
+Coming next: database backups before migrating, and status monitoring.
 
 ## Requirements
 
@@ -24,7 +50,7 @@ The largest zip you can deploy is limited by PHP's `upload_max_filesize` and `po
 
 ## Installation
 
-1. Download `dodocd-x.y.z.zip` from the [releases page](https://github.com/YohanSandun/dodocd/releases), unzip it, and upload the `dodocd` folder into your web root, e.g. as `public_html/dodocd`. A copy of this repository works too, but only an install made from a package lets [updates](#updating-dodocd) delete files that newer versions no longer have.
+1. [Download the latest `dodocd.zip`](https://github.com/YohanSandun/dodocd/releases/latest/download/dodocd.zip) (or a specific `dodocd-x.y.z.zip` from the [releases page](https://github.com/YohanSandun/dodocd/releases)), unzip it, and upload the `dodocd` folder into your web root, e.g. as `public_html/dodocd`. A copy of this repository works too, but only an install made from a package lets [updates](#updating-dodocd) delete files that newer versions no longer have.
 2. Open `https://example.com/dodocd/` in a browser. You'll be taken to the setup wizard.
 3. Go through the steps:
    - **Requirements:** checks the server. Red items must be fixed first.

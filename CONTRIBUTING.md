@@ -26,7 +26,7 @@ DodoCD's own schema changes go in a new numbered file in `agent/migrations/`. Th
 
 ## Releasing
 
-A release is a GitHub release with `dodocd-x.y.z.zip` and its `.sha256`. The zip holds a single `dodocd` folder with:
+A release is a GitHub release with `dodocd-x.y.z.zip`, its `.sha256`, and `dodocd.zip`, an identical copy under a fixed name that the README's download button links to (`releases/latest/download/dodocd.zip`). The zip holds a single `dodocd` folder with:
 - the repository's files, without `.github/`, `tools/`, `CLAUDE.md`, `CONTRIBUTING.md` and `.gitignore`;
 - `agent/manifest.json`, with the version, the requirements and every file's SHA-256;
 - `agent/manifest.json.sig`, the manifest's signature.
