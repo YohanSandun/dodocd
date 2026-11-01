@@ -24,7 +24,7 @@ $_SERVER['SCRIPT_NAME'] = '/index.php';
 require dirname(__DIR__) . '/agent/bootstrap.php';
 
 /** Repository paths that are for development, not for running DodoCD. */
-const DEV_ONLY = ['.github/', 'tools/', 'build/', '.gitignore', '.gitattributes', 'CLAUDE.md'];
+const DEV_ONLY = ['.github/', 'tools/', 'build/', '.gitignore', '.gitattributes', 'CLAUDE.md', 'CONTRIBUTING.md'];
 
 function fail(string $message): never
 {
