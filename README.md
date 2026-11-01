@@ -17,12 +17,7 @@
 
 The dodo didn't make it. Shared hosting did: a huge share of the web's PHP sites still runs on it. But modern CI/CD moved on to containers, SSH and build runners, and left those sites behind with FTP uploads and crossed fingers.
 
-**DodoCD brings CI/CD back to them.** Upload one folder to your hosting, run the setup wizard, and from then on every build from your pipeline goes live with a single request:
-
-```bash
-curl -H "Authorization: Bearer $DODOCD_TOKEN" -F archive=@release.zip \
-  https://example.com/dodocd/api/sites/main-site/deploy
-```
+**DodoCD brings CI/CD back to them.** Upload one folder to your hosting, run the setup wizard, and from then on every build from your pipeline goes live with a single request.
 
 ## Why DodoCD
 
