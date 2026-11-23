@@ -11,6 +11,8 @@
   <a href="https://github.com/YohanSandun/dodocd/releases/latest/download/dodocd.zip"><img src="https://img.shields.io/github/v/release/YohanSandun/dodocd?label=Download&style=for-the-badge&color=2f6fde" alt="Download the latest DodoCD"></a>
 </p>
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/YohanSandun/dodocd/badge)](https://scorecard.dev/viewer/?uri=github.com/YohanSandun/dodocd)
+
 <p align="center">
   <a href="#installation">Get started</a> · <a href="#example-github-actions-workflow">GitHub Actions example</a> · <a href="https://github.com/YohanSandun/dodocd/releases">Release notes</a>
 </p>
