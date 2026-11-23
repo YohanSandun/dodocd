@@ -323,3 +323,9 @@ To try migrations, start MySQL in the XAMPP control panel and create an empty da
 - Site database passwords are encrypted with the key in `agent/config.php`. If that file is replaced, enter the passwords again on each site's **Database** page.
 - Until setup finishes, anyone who opens the setup URL can install. Complete setup right after uploading. A second browser can't run setup while one is in progress.
 - Update packages are checked against the release key built into DodoCD before anything is installed. Install an unsigned package only if you built it yourself.
+
+Found a security problem? Please report it privately, as described in the [security policy](SECURITY.md). Don't open a public issue.
+
+## License
+
+DodoCD is licensed under the [Apache License 2.0](LICENSE). Copyright 2026 Yohan Sandun.
